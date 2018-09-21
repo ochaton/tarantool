@@ -57,5 +57,13 @@ replication_prefork();
 void
 replication_init(const char *bind_ipaddr, int replication_port);
 
+/**
+ * Closes replication listen socket
+ *
+ * @return None.
+ */
+void
+replication_exit();
+
 #endif // TARANTOOL_REPLICATION_H_INCLUDED
 

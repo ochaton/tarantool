@@ -202,6 +202,8 @@ replication_prefork()
 	}
 }
 
+static struct evio_service replication;
+
 /**
  * Create a fiber which accepts client connections and pushes them
  * to replication spawner.
@@ -213,14 +215,22 @@ replication_init(const char *bind_ipaddr, int replication_port)
 	if (replication_port == 0)
 		return;                        /* replication is not in use */
 
-	static struct evio_service replication;
-
 	evio_service_init(&replication, "replication", bind_ipaddr,
 			  replication_port, replication_on_accept, NULL);
 
 	evio_service_start(&replication);
 }
 
+void
+replication_exit()
+{
+	/* On modern Linux it takes a lot of time to unmap
+	 * memory segments of a large instance. Do not hold file
+	 * descriptors for the replication port while the OS
+	 * is un-mapping the memory at shutdown.
+	 */
+	evio_close(&replication.ev);
+}
 
 /*-----------------------------------------------------------------------------*/
 /* replication accept/sender fibers                                            */

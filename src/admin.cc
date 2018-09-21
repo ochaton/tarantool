@@ -2012,13 +2012,25 @@ admin_handler(va_list ap)
 	}
 }
 
+static struct coio_service admin;
+
 void
 admin_init(const char *bind_ipaddr, int admin_port)
 {
-	static struct coio_service admin;
 	coio_service_init(&admin, "admin", bind_ipaddr,
 			  admin_port, admin_handler, NULL);
 	evio_service_start(&admin.evio_service);
+}
+
+void
+admin_exit()
+{
+	/* On modern Linux it takes a lot of time to unmap
+	 * memory segments of a large instance. Do not hold file
+	 * descriptors for the admin port while the OS
+	 * is un-mapping the memory at shutdown.
+	 */
+	evio_close(&admin.evio_service.ev);
 }
 
 /*

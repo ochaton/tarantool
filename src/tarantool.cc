@@ -655,6 +655,8 @@ tarantool_free(void)
 	box_free();
 	/* Close the file descriptors. */
 	iproto_exit();
+	replication_exit();
+	admin_exit();
 	recovery_free();
 	stat_free();
 

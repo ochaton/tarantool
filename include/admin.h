@@ -30,4 +30,7 @@
  */
 int admin_init(const char *bind_ipaddr, int admin_port);
 
+void
+admin_exit();
+
 #endif /* TARANTOOL_ADMIN_H_INCLUDED */
