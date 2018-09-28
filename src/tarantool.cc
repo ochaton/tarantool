@@ -649,14 +649,14 @@ tarantool_free(void)
 	/* Do nothing in a fork. */
 	if (getpid() != master_pid)
 		return;
-	signal_free();
-	memcached_free();
-	tarantool_lua_free();
-	box_free();
 	/* Close the file descriptors. */
 	iproto_exit();
 	replication_exit();
 	admin_exit();
+	signal_free();
+	memcached_free();
+	tarantool_lua_free();
+	box_free();
 	recovery_free();
 	stat_free();
 
