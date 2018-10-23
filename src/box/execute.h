@@ -107,7 +107,7 @@ struct sql_response {
  * @retval -1 Memory error.
  */
 int
-sql_response_dump(struct sql_response *response, struct obuf *out);
+sql_response_dump(struct sql_response *response, int *keys, struct obuf *out);
 
 /**
  * Parse the EXECUTE request.

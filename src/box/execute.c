@@ -519,36 +519,36 @@ sql_bind(const struct sql_request *request, struct sqlite3_stmt *stmt)
  * @retval  0 Success.
  * @retval -1 Client or memory error.
  */
-static inline int
-sql_get_description(struct sqlite3_stmt *stmt, struct obuf *out,
-		    int column_count)
-{
-	assert(column_count > 0);
-	if (iproto_reply_array_key(out, column_count, IPROTO_METADATA) != 0)
-		return -1;
+// static inline int
+// sql_get_description(struct sqlite3_stmt *stmt, struct obuf *out,
+// 		    int column_count, vstream_reply_f reply)
+// {
+// 	assert(column_count > 0);
+// 	if (reply(out, column_count, SQL_METADATA) != 0)
+// 		return -1;
 
-	for (int i = 0; i < column_count; ++i) {
-		size_t size = mp_sizeof_map(1) +
-			      mp_sizeof_uint(IPROTO_FIELD_NAME);
-		const char *name = sqlite3_column_name(stmt, i);
-		/*
-		 * Can not fail, since all column names are
-		 * preallocated during prepare phase and the
-		 * column_name simply returns them.
-		 */
-		assert(name != NULL);
-		size += mp_sizeof_str(strlen(name));
-		char *pos = (char *) obuf_alloc(out, size);
-		if (pos == NULL) {
-			diag_set(OutOfMemory, size, "obuf_alloc", "pos");
-			return -1;
-		}
-		pos = mp_encode_map(pos, 1);
-		pos = mp_encode_uint(pos, IPROTO_FIELD_NAME);
-		pos = mp_encode_str(pos, name, strlen(name));
-	}
-	return 0;
-}
+// 	for (int i = 0; i < column_count; ++i) {
+// 		size_t size = mp_sizeof_map(1) +
+// 			      mp_sizeof_uint(IPROTO_FIELD_NAME);
+// 		const char *name = sqlite3_column_name(stmt, i);
+
+// 		 * Can not fail, since all column names are
+// 		 * preallocated during prepare phase and the
+// 		 * column_name simply returns them.
+
+// 		assert(name != NULL);
+// 		size += mp_sizeof_str(strlen(name));
+// 		char *pos = (char *) obuf_alloc(out, size);
+// 		if (pos == NULL) {
+// 			diag_set(OutOfMemory, size, "obuf_alloc", "pos");
+// 			return -1;
+// 		}
+// 		pos = mp_encode_map(pos, 1);
+// 		pos = mp_encode_uint(pos, IPROTO_FIELD_NAME);
+// 		pos = mp_encode_str(pos, name, strlen(name));
+// 	}
+// 	return 0;
+// }
 
 static inline int
 sql_execute(sqlite3 *db, struct sqlite3_stmt *stmt, struct port *port,
@@ -605,27 +605,56 @@ sql_prepare_and_execute(const struct sql_request *request,
 }
 
 int
-sql_response_dump(struct sql_response *response, struct obuf *out)
+sql_response_dump(struct sql_response *response, int *keys, struct obuf *out)
 {
-	struct obuf_svp header_svp;
-	/* Prepare memory for the iproto header. */
-	if (iproto_prepare_header(out, &header_svp, IPROTO_SQL_HEADER_LEN) != 0)
-		return -1;
+
 	sqlite3 *db = sql_get();
 	struct sqlite3_stmt *stmt = (struct sqlite3_stmt *) response->prep_stmt;
 	struct port_tuple *port_tuple = (struct port_tuple *) &response->port;
-	int keys, rc = 0, column_count = sqlite3_column_count(stmt);
+	int rc = 0, column_count = sqlite3_column_count(stmt);
 	if (column_count > 0) {
-		if (sql_get_description(stmt, out, column_count) != 0) {
+		char *pos = (char *) obuf_alloc(out, IPROTO_KEY_HEADER_LEN);
+		if (pos == NULL) {
+			diag_set(OutOfMemory, IPROTO_KEY_HEADER_LEN,
+				 "obuf_alloc", "pos");
 err:
-			obuf_rollback_to_svp(out, &header_svp);
 			rc = -1;
 			goto finish;
 		}
-		keys = 2;
-		if (iproto_reply_array_key(out, port_tuple->size,
-					   IPROTO_DATA) != 0)
+		pos = mp_store_u8(pos, IPROTO_METADATA);
+		pos = mp_store_u8(pos, 0xdd);
+		pos = mp_store_u32(pos, column_count);
+		for (int i = 0; i < column_count; ++i) {
+			size_t size = mp_sizeof_map(1) +
+				      mp_sizeof_uint(IPROTO_FIELD_NAME);
+			const char *name = sqlite3_column_name(stmt, i);
+			/*
+			 * Can not fail, since all column names are
+			 * preallocated during prepare phase and the
+			 * column_name simply returns them.
+			 */
+			assert(name != NULL);
+			size += mp_sizeof_str(strlen(name));
+			pos = (char *) obuf_alloc(out, size);
+			if (pos == NULL) {
+				diag_set(OutOfMemory, size, "obuf_alloc", "pos");
+				goto err;
+			}
+			pos = mp_encode_map(pos, 1);
+			pos = mp_encode_uint(pos, IPROTO_FIELD_NAME);
+			pos = mp_encode_str(pos, name, strlen(name));
+		}
+
+		*keys = 2;
+		pos = (char *) obuf_alloc(out, IPROTO_KEY_HEADER_LEN);
+		if (pos == NULL) {
+			diag_set(OutOfMemory, IPROTO_KEY_HEADER_LEN,
+				 "obuf_alloc", "pos");
 			goto err;
+		}
+		pos = mp_store_u8(pos, IPROTO_DATA);
+		pos = mp_store_u8(pos, 0xdd);
+		pos = mp_store_u32(pos, port_tuple->size);
 		/*
 		 * Just like SELECT, SQL uses output format compatible
 		 * with Tarantool 1.6
@@ -635,10 +664,17 @@ err:
 			goto err;
 		}
 	} else {
-		keys = 1;
+		*keys = 1;
 		assert(port_tuple->size == 0);
-		if (iproto_reply_map_key(out, 1, IPROTO_SQL_INFO) != 0)
+		char *pos = (char *) obuf_alloc(out, IPROTO_KEY_HEADER_LEN);
+		if (pos == NULL) {
+			diag_set(OutOfMemory, IPROTO_KEY_HEADER_LEN,
+				 "obuf_alloc", "pos");
 			goto err;
+		}
+		pos = mp_store_u8(pos, IPROTO_SQL_INFO);
+		pos = mp_store_u8(pos, 0xdf);
+		pos = mp_store_u32(pos, 1);
 		int changes = sqlite3_changes(db);
 		int size = mp_sizeof_uint(SQL_INFO_ROW_COUNT) +
 			   mp_sizeof_uint(changes);
@@ -650,8 +686,6 @@ err:
 		buf = mp_encode_uint(buf, SQL_INFO_ROW_COUNT);
 		buf = mp_encode_uint(buf, changes);
 	}
-	iproto_reply_sql(out, &header_svp, response->sync, schema_version,
-			 keys);
 finish:
 	port_destroy(&response->port);
 	sqlite3_finalize(stmt);
