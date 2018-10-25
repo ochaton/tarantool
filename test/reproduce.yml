@@ -1,0 +1,4 @@
+---
+- [replication/consistent.test.lua, vinyl]
+- [replication/replicaset_ro_mostly.test.lua, vinyl]
+...

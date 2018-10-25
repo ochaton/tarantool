@@ -42,7 +42,7 @@ deps_ubuntu:
 test_ubuntu: deps_ubuntu
 	cmake . -DCMAKE_BUILD_TYPE=RelWithDebInfoWError
 	make -j8
-	cd test && /usr/bin/python test-run.py -j 1
+	cd test && /usr/bin/python test-run.py --reproduce reproduce.yml
 
 deps_osx:
 	brew update
