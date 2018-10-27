@@ -61,6 +61,7 @@
 #include "rmean.h"
 #include "execute.h"
 #include "errinj.h"
+#include "tuple.h"
 
 enum {
 	IPROTO_SALT_SIZE = 32,
@@ -1579,6 +1580,84 @@ check_error(void *is_error)
 	*(bool *)is_error = true;
 }
 
+static inline void
+mp_vstream_encode_array(struct vstream *stream, uint32_t size)
+{
+	mpstream_encode_array((struct mpstream *)stream->out, size);
+}
+
+static inline void
+mp_vstream_encode_map(struct vstream *stream, uint32_t size)
+{
+	mpstream_encode_map((struct mpstream *)stream->out, size);
+}
+
+static inline void
+mp_vstream_encode_uint(struct vstream *stream, uint64_t num)
+{
+	mpstream_encode_uint((struct mpstream *)stream->out, num);
+}
+
+static inline void
+mp_vstream_encode_str(struct vstream *stream, const char *str)
+{
+	mpstream_encode_str((struct mpstream *)stream->out, str);
+}
+
+static inline void
+mp_vstream_encode_head(struct vstream *stream, uint32_t size, uint8_t key)
+{
+	uint8_t type;
+	switch(key) {
+	case HEAD_DATA:
+		key = IPROTO_DATA;
+		type = 0xdd;
+		break;
+	case HEAD_METADATA:
+		key = IPROTO_METADATA;
+		type = 0xdd;
+		break;
+	case HEAD_SQL_INFO:
+		key = IPROTO_SQL_INFO;
+		type = 0xdf;
+		break;
+	default:
+		assert(0);
+	}
+
+	struct mpstream *out = (struct mpstream *)stream->out;
+	char *pos = mpstream_reserve(out, IPROTO_KEY_HEADER_LEN);
+	if (pos == NULL)
+		return;
+	pos = mp_store_u8(pos, key);
+	pos = mp_store_u8(pos, type);
+	pos = mp_store_u32(pos, size);
+	mpstream_advance(out, IPROTO_KEY_HEADER_LEN);
+}
+
+static inline void
+mp_vstream_encode_port_tuple(struct vstream *stream,
+			     struct port_tuple *port_tuple)
+{
+	struct port_tuple_entry *pe;
+	struct mpstream *out = (struct mpstream *)stream->out;
+	for (pe = port_tuple->first; pe != NULL; pe = pe->next) {
+		size_t bsize = box_tuple_bsize(pe->tuple);
+		char *pos = mpstream_reserve(out, bsize);
+		box_tuple_to_buf(pe->tuple, pos, bsize);
+		mpstream_advance(out, bsize);
+	}
+}
+
+static const struct vstream_vtab mp_vstream_vtab = {
+	/* .encode_array = */ mp_vstream_encode_array,
+	/* .encode_map = */ mp_vstream_encode_map,
+	/* .encode_uint = */ mp_vstream_encode_uint,
+	/* .encode_str = */ mp_vstream_encode_str,
+	/* .encode_port_tuple = */ mp_vstream_encode_port_tuple,
+	/* .encode_head = */ mp_vstream_encode_head
+};
+
 static void
 tx_process_sql(struct cmsg *m)
 {
@@ -1611,7 +1690,11 @@ tx_process_sql(struct cmsg *m)
 	mpstream_init(&stream, out, obuf_reserve_cb, obuf_alloc_cb,
 		      check_error, &is_error);
 
-	if (sql_response_dump(&response, &keys, &stream) != 0) {
+	struct vstream vstream;
+	vstream.vtab = &mp_vstream_vtab;
+	vstream.out = &stream;
+
+	if (sql_response_dump(&response, &keys, &vstream) != 0) {
 		obuf_rollback_to_svp(out, &header_svp);
 		goto error;
 	}

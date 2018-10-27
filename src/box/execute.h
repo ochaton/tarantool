@@ -74,6 +74,66 @@ struct sql_response {
 	void *prep_stmt;
 };
 
+enum
+{
+	HEAD_DATA = 0,
+	HEAD_METADATA,
+	HEAD_SQL_INFO
+};
+
+struct vstream;
+
+struct vstream_vtab {
+	void (*encode_array)(struct vstream *stream, uint32_t size);
+	void (*encode_map)(struct vstream *stream, uint32_t size);
+	void (*encode_uint)(struct vstream *stream, uint64_t num);
+	void (*encode_str)(struct vstream *stream, const char *str);
+	void (*encode_port_tuple)(struct vstream *stream,
+				  struct port_tuple *port_tuple);
+	void (*encode_head)(struct vstream *stream, uint32_t size, uint8_t key);
+};
+
+struct vstream {
+	const struct vstream_vtab *vtab;
+	void *out;
+};
+
+static inline void
+vstream_encode_array(struct vstream *stream, uint32_t size)
+{
+	return stream->vtab->encode_array(stream, size);
+}
+
+static inline void
+vstream_encode_map(struct vstream *stream, uint32_t size)
+{
+	return stream->vtab->encode_map(stream, size);
+}
+
+static inline void
+vstream_encode_uint(struct vstream *stream, uint64_t num)
+{
+	return stream->vtab->encode_uint(stream, num);
+}
+
+static inline void
+vstream_encode_str(struct vstream *stream, const char *str)
+{
+	return stream->vtab->encode_str(stream, str);
+}
+
+static inline void
+vstream_encode_port_tuple(struct vstream *stream, struct port_tuple *port_tuple)
+{
+	return stream->vtab->encode_port_tuple(stream, port_tuple);
+}
+
+static inline void
+vstream_encode_head(struct vstream *stream, uint32_t size, uint8_t key)
+{
+	return stream->vtab->encode_head(stream, size, key);
+}
+
 /**
  * Dump a built response into @an out buffer. The response is
  * destroyed.
@@ -109,7 +169,7 @@ struct sql_response {
  */
 int
 sql_response_dump(struct sql_response *response, int *keys,
-		  struct mpstream *stream);
+		  struct vstream *stream);
 
 /**
  * Parse the EXECUTE request.
