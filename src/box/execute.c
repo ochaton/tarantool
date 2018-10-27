@@ -605,18 +605,16 @@ sql_prepare_and_execute(const struct sql_request *request,
 }
 
 int
-sql_response_dump(struct sql_response *response, int *keys, struct obuf *out)
+sql_response_dump(struct sql_response *response, int *keys,
+		  struct mpstream *stream)
 {
-
 	sqlite3 *db = sql_get();
 	struct sqlite3_stmt *stmt = (struct sqlite3_stmt *) response->prep_stmt;
 	struct port_tuple *port_tuple = (struct port_tuple *) &response->port;
 	int rc = 0, column_count = sqlite3_column_count(stmt);
 	if (column_count > 0) {
-		char *pos = (char *) obuf_alloc(out, IPROTO_KEY_HEADER_LEN);
+		char *pos = mpstream_reserve(stream, IPROTO_KEY_HEADER_LEN);
 		if (pos == NULL) {
-			diag_set(OutOfMemory, IPROTO_KEY_HEADER_LEN,
-				 "obuf_alloc", "pos");
 err:
 			rc = -1;
 			goto finish;
@@ -624,9 +622,8 @@ err:
 		pos = mp_store_u8(pos, IPROTO_METADATA);
 		pos = mp_store_u8(pos, 0xdd);
 		pos = mp_store_u32(pos, column_count);
+		mpstream_advance(stream, IPROTO_KEY_HEADER_LEN);
 		for (int i = 0; i < column_count; ++i) {
-			size_t size = mp_sizeof_map(1) +
-				      mp_sizeof_uint(IPROTO_FIELD_NAME);
 			const char *name = sqlite3_column_name(stmt, i);
 			/*
 			 * Can not fail, since all column names are
@@ -634,57 +631,39 @@ err:
 			 * column_name simply returns them.
 			 */
 			assert(name != NULL);
-			size += mp_sizeof_str(strlen(name));
-			pos = (char *) obuf_alloc(out, size);
-			if (pos == NULL) {
-				diag_set(OutOfMemory, size, "obuf_alloc", "pos");
-				goto err;
-			}
-			pos = mp_encode_map(pos, 1);
-			pos = mp_encode_uint(pos, IPROTO_FIELD_NAME);
-			pos = mp_encode_str(pos, name, strlen(name));
+			mpstream_encode_map(stream, 1);
+			mpstream_encode_uint(stream, IPROTO_FIELD_NAME);
+			mpstream_encode_str(stream, name);
 		}
 
 		*keys = 2;
-		pos = (char *) obuf_alloc(out, IPROTO_KEY_HEADER_LEN);
-		if (pos == NULL) {
-			diag_set(OutOfMemory, IPROTO_KEY_HEADER_LEN,
-				 "obuf_alloc", "pos");
+		pos = mpstream_reserve(stream, IPROTO_KEY_HEADER_LEN);
+		if (pos == NULL)
 			goto err;
-		}
 		pos = mp_store_u8(pos, IPROTO_DATA);
 		pos = mp_store_u8(pos, 0xdd);
 		pos = mp_store_u32(pos, port_tuple->size);
-		/*
-		 * Just like SELECT, SQL uses output format compatible
-		 * with Tarantool 1.6
-		 */
-		if (port_dump_msgpack_16(&response->port, out) < 0) {
-			/* Failed port dump destroyes the port. */
-			goto err;
+		mpstream_advance(stream, IPROTO_KEY_HEADER_LEN);
+
+		struct port_tuple_entry *pe;
+		for (pe = port_tuple->first; pe != NULL; pe = pe->next) {
+			size_t bsize = box_tuple_bsize(pe->tuple);
+			char *ptr = mpstream_reserve(stream, bsize);
+			box_tuple_to_buf(pe->tuple, ptr, bsize);
+			mpstream_advance(stream, bsize);
 		}
 	} else {
 		*keys = 1;
 		assert(port_tuple->size == 0);
-		char *pos = (char *) obuf_alloc(out, IPROTO_KEY_HEADER_LEN);
-		if (pos == NULL) {
-			diag_set(OutOfMemory, IPROTO_KEY_HEADER_LEN,
-				 "obuf_alloc", "pos");
+		char *pos = mpstream_reserve(stream, IPROTO_KEY_HEADER_LEN);
+		if (pos == NULL)
 			goto err;
-		}
 		pos = mp_store_u8(pos, IPROTO_SQL_INFO);
 		pos = mp_store_u8(pos, 0xdf);
 		pos = mp_store_u32(pos, 1);
-		int changes = sqlite3_changes(db);
-		int size = mp_sizeof_uint(SQL_INFO_ROW_COUNT) +
-			   mp_sizeof_uint(changes);
-		char *buf = obuf_alloc(out, size);
-		if (buf == NULL) {
-			diag_set(OutOfMemory, size, "obuf_alloc", "buf");
-			goto err;
-		}
-		buf = mp_encode_uint(buf, SQL_INFO_ROW_COUNT);
-		buf = mp_encode_uint(buf, changes);
+		mpstream_advance(stream, IPROTO_KEY_HEADER_LEN);
+		mpstream_encode_uint(stream, SQL_INFO_ROW_COUNT);
+		mpstream_encode_uint(stream, sqlite3_changes(db));
 	}
 finish:
 	port_destroy(&response->port);
