@@ -193,6 +193,9 @@ int lbox_sql_create_function(struct lua_State *L)
 				  NULL, NULL, lua_sql_destroy);
 
 	free(normalized_name);
+	if (rc != 0) {
+		return luaL_error(L, sqlite3ErrStr(rc));
+	}
 	return rc;
 }
 
