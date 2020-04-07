@@ -529,8 +529,7 @@ recover_existing_wals(struct recovery_state *r)
 		/* No WALs to recover from. */
 		goto out;
 	}
-	r->current_wal = log_io_open_for_read(r->wal_dir, wal_lsn, NONE);
-	if (r->current_wal == NULL)
+	if (log_io_open_for_read(r->wal_dir, wal_lsn, NONE) == NULL)
 		goto out;
 	if (recover_remaining_wals(r) < 0)
 		panic("recover failed");

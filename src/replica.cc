@@ -38,7 +38,7 @@
 #include "coio_buf.h"
 #include "tarantool.h"
 
-static void
+static int
 remote_apply_row(struct recovery_state *r, const char *row, uint32_t rowlne);
 
 const char *
@@ -123,7 +123,12 @@ pull_from_remote(va_list ap)
 			r->remote->recovery_lag = ev_now() - header_v11(row)->tm;
 			r->remote->recovery_last_update_tstamp = ev_now();
 
-			remote_apply_row(r, row, rowlen);
+			if (remote_apply_row(r, row, rowlen) == -1 ) {
+				title("replica", "%s/%s", r->remote->source, "stopped");
+				iobuf_delete(iobuf);
+				evio_close(&coio);
+				return;
+			}
 
 			iobuf_gc(iobuf);
 			fiber_gc();
@@ -162,17 +167,28 @@ pull_from_remote(va_list ap)
 	}
 }
 
-static void
+static int
 remote_apply_row(struct recovery_state *r, const char *row, uint32_t rowlen)
 {
 	int64_t lsn = header_v11(row)->lsn;
 
 	assert(*(uint16_t*)(row + sizeof(struct header_v11)) == XLOG);
 
+	if (r->lsn + 1 != lsn) {
+		say_warn("received from master non consecutive LSN, confirmed: %jd, "
+			 " new: %jd, diff: %jd",
+			 (intmax_t) r->confirmed_lsn,
+			 (intmax_t) lsn,
+			 (intmax_t) (lsn - r->confirmed_lsn));
+		return -1;
+	}
+
+
 	if (r->row_handler(r->row_handler_param, row, rowlen) < 0)
 		panic("replication failure: can't apply row");
 
 	set_lsn(r, lsn);
+	return 0;
 }
 
 void
