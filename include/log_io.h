@@ -68,7 +68,7 @@ greatest_lsn(struct log_dir *dir);
 char *
 format_filename(struct log_dir *dir, int64_t lsn, enum log_suffix suffix);
 int64_t
-find_including_file(struct log_dir *dir, int64_t target_lsn);
+find_following_file(struct log_dir *dir, int64_t target_lsn);
 
 struct log_io {
 	struct log_dir *dir;

@@ -464,7 +464,7 @@ recover_remaining_wals(struct recovery_state *r)
 			if (!r->wal_dir->panic_if_error) {
 				/* Ignore missing WALs */
 				say_warn("ignoring missing WALs");
-				current_lsn++;
+				current_lsn = find_following_file(r->wal_dir, current_lsn);
 				continue;
 			}
 			result = -1;
@@ -523,18 +523,9 @@ recover_current_wal:
 void
 recover_existing_wals(struct recovery_state *r)
 {
-	int64_t next_lsn = r->confirmed_lsn + 1;
-	int64_t wal_lsn = find_including_file(r->wal_dir, next_lsn);
-	if (wal_lsn <= 0) {
-		/* No WALs to recover from. */
-		goto out;
-	}
-	if (log_io_open_for_read(r->wal_dir, wal_lsn, NONE) == NULL)
-		goto out;
 	if (recover_remaining_wals(r) < 0)
 		panic("recover failed");
 	say_info("WALs recovered, confirmed lsn: %" PRIi64, r->confirmed_lsn);
-out:
 	prelease(fiber_ptr->gc_pool);
 }
 

@@ -179,7 +179,7 @@ greatest_lsn(struct log_dir *dir)
 }
 
 int64_t
-find_including_file(struct log_dir *dir, int64_t target_lsn)
+find_following_file(struct log_dir *dir, int64_t target_lsn)
 {
 	int64_t *lsn;
 	ssize_t count = scan_dir(dir, &lsn);
@@ -188,7 +188,7 @@ find_including_file(struct log_dir *dir, int64_t target_lsn)
 		return count;
 
 	while (count > 1) {
-		if (target_lsn < *(lsn + 1)) {
+		if (target_lsn < *lsn) {
 			goto out;
 		}
 		lsn++;
