@@ -64,3 +64,6 @@
 [submodule "third_party/metrics"]
 	path = third_party/metrics
 	url = https://github.com/tarantool/metrics.git
+[submodule "third_party/usearch"]
+	path = third_party/usearch
+	url = git@github.com:unum-cloud/usearch

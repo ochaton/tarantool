@@ -1576,6 +1576,11 @@ local alter_index_template = {
     type = 'string',
     parts = 'table',
     sequence = 'boolean, number, string, table',
+    metric_kind = 'string',
+    dimension = 'number',
+    connectivity = 'number',
+    expansion_add = 'number',
+    expansion_search = 'number',
 }
 for k, v in pairs(index_options) do
     alter_index_template[k] = v
@@ -1615,6 +1620,7 @@ box.schema.index.create = atomic_wrapper(function(space_id, name, options)
     local type_dependent_defaults = {
         rtree = {parts = { 2, 'array' }, unique = false},
         bitset = {parts = { 2, 'unsigned' }, unique = false},
+        usearch = {parts = { 2, 'array' }, unique = false},
         other = {parts = { 1, 'unsigned' }, unique = true},
     }
     options_defaults = type_dependent_defaults[options.type]
@@ -1684,6 +1690,10 @@ box.schema.index.create = atomic_wrapper(function(space_id, name, options)
             bloom_fpr = options.bloom_fpr,
             func = options.func,
             hint = options.hint,
+            connectivity = options.connectivity,
+            expansion_add = options.expansion_add,
+            expansion_search = options.expansion_search,
+            metric_kind = options.metric_kind,
     }
     local field_type_aliases = {
         num = 'unsigned'; -- Deprecated since 1.7.2

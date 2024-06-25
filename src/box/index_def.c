@@ -36,9 +36,13 @@
 #include "fiber.h"
 #include "tt_static.h"
 
-const char *index_type_strs[] = { "HASH", "TREE", "BITSET", "RTREE" };
+const char *index_type_strs[] = { "HASH", "TREE", "BITSET", "RTREE", "USEARCH" };
 
 const char *rtree_index_distance_type_strs[] = { "EUCLID", "MANHATTAN" };
+
+const char *vector_metric_kind_strs[] = { "UNKNOWN", "COS", "IP", "L2SQ",
+	"HAVERSINE", "DIVERGENCE", "PEARSON", "JACCARD", "HAMMING",
+	"TANIMOTO", "SORENSEN" };
 
 const struct index_opts index_opts_default = {
 	/* .unique              = */ true,
@@ -52,6 +56,10 @@ const struct index_opts index_opts_default = {
 	/* .lsn                 = */ 0,
 	/* .func                = */ 0,
 	/* .hint                = */ INDEX_HINT_DEFAULT,
+	/* .connectivity        = */ 16,
+	/* .expansion_add       = */ 128,
+	/* .expansion_search    = */ 64,
+	/* .vector_metric_kind  = */ VECTOR_METRIC_KIND_COS,
 };
 
 /**
@@ -89,6 +97,11 @@ const struct opt_def index_opts_reg[] = {
 	OPT_DEF("func", OPT_UINT32, struct index_opts, func_id),
 	OPT_DEF_LEGACY("sql"),
 	OPT_DEF_CUSTOM("hint", index_opts_parse_hint),
+	OPT_DEF("connectivity", OPT_UINT32, struct index_opts, connectivity),
+	OPT_DEF("expansion_add", OPT_UINT32, struct index_opts, expansion_add),
+	OPT_DEF("expansion_search", OPT_UINT32, struct index_opts, expansion_search),
+	OPT_DEF_ENUM("metric_kind", vector_metric_kind, struct index_opts,
+		vector_metric_kind, NULL),
 	OPT_END,
 };
 

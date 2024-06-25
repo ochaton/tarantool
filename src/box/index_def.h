@@ -44,6 +44,7 @@ enum index_type {
 	TREE,     /* TREE Index */
 	BITSET,   /* BITSET Index */
 	RTREE,    /* R-Tree Index */
+	USEARCH,   /* Vector Index */
 	index_type_MAX,
 };
 
@@ -64,6 +65,23 @@ enum rtree_index_distance_type {
 	rtree_index_distance_type_MAX
 };
 extern const char *rtree_index_distance_type_strs[];
+
+enum vector_metric_kind {
+    VECTOR_METRIC_KIND_UNKNOWN = 0,
+    VECTOR_METRIC_KIND_COS = 1,
+    VECTOR_METRIC_KIND_IP = 2,
+    VECTOR_METRIC_KIND_L2SQ = 3,
+    VECTOR_METRIC_KIND_HAVERSINE = 4,
+    VECTOR_METRIC_KIND_DIVERGENCE = 5,
+    VECTOR_METRIC_KIND_PEARSON = 6,
+    VECTOR_METRIC_KIND_JACCARD = 7,
+    VECTOR_METRIC_KIND_HAMMING = 8,
+    VECTOR_METRIC_KIND_TANIMOTO = 9,
+    VECTOR_METRIC_KIND_SORENSEN = 10,
+    vector_metric_kind_MAX
+};
+
+extern const char *vector_metric_kind_t_strs[];
 
 /** Index options */
 struct index_opts {
@@ -108,6 +126,23 @@ struct index_opts {
 	 * Use hint optimization for tree index.
 	 */
 	enum index_hint_cfg hint;
+	/**
+	 * Vector connectivity
+	 */
+	uint32_t connectivity;
+	/**
+	 * Vector expansion add
+	 */
+	uint32_t expansion_add;
+	/**
+	 * Vector expansion search
+	 */
+	uint32_t expansion_search;
+
+	/**
+	 * Usearch Metric Kind
+	 */
+	enum vector_metric_kind vector_metric_kind;
 };
 
 extern const struct index_opts index_opts_default;
