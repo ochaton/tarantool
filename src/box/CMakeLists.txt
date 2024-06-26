@@ -396,7 +396,7 @@ add_custom_command(OUTPUT ${SQL_BIN_DIR}/opcodes.c
     DEPENDS ${SQL_SRC_DIR}/vdbe.c ${EXT_SRC_DIR}/mkopcodec.sh ${SQL_BIN_DIR}/parse.h
         ${SQL_BIN_DIR}/opcodes.h)
 
-target_link_libraries(box box_error tuple stat xrow xlog vclock crc32 raft
-                      node_name ${common_libraries} tt_usearch)
+target_link_libraries(box box_error tuple stat xrow xlog vclock crc32 raft tt_usearch
+                      node_name ${common_libraries})
 
 add_dependencies(box build_bundled_libs generate_sql_files)

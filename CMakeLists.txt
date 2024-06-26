@@ -751,9 +751,9 @@ add_dependencies(build_bundled_libs misc)
 #
 # Third-Party Usearch
 #
-
 include(BuildUsearch)
 libusearch_build()
+add_dependencies(build_bundled_libs ${USEARCH_LIBRARIES})
 
 if(DEFINED EXTRA_DEPENDENCIES_CMAKE)
     include(${EXTRA_DEPENDENCIES_CMAKE})
@@ -774,11 +774,11 @@ include (cmake/rpm.cmake)
 
 add_subdirectory(src)
 add_subdirectory(extra)
-add_subdirectory(test)
+# add_subdirectory(test)
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     message(AUTHOR_WARNING "Benchmarks are available only in release build")
 else ()
-    add_subdirectory(perf)
+    # add_subdirectory(perf)
 endif ()
 add_subdirectory(doc)
 

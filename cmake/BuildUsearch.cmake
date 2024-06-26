@@ -1,6 +1,7 @@
 #
 # A macro to build the third party usearch
 macro(libusearch_build)
+    set(USEARCH_LIBRARIES usearch_static_c)
     set(USEARCH_USE_FP16LIB ON)
     set(USEARCH_BUILD_LIB_C TRUE)
     set(USEARCH_BUILD_TEST_CPP OFF)
