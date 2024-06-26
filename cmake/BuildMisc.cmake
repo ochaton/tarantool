@@ -7,12 +7,6 @@ macro(libmisc_build)
         ${PROJECT_SOURCE_DIR}/third_party/qsort_arg.c
     )
 
-    set(USEARCH_USE_FP16LIB OFF)
-    set(USEARCH_BUILD_LIB_C TRUE)
-    set(USEARCH_BUILD_TEST_CPP OFF)
-    set(USEARCH_BUILD_BENCH_CPP OFF)
-    add_subdirectory(${PROJECT_SOURCE_DIR}/third_party/usearch)
-
     if (NOT HAVE_MEMMEM)
         list(APPEND misc_src
             ${PROJECT_SOURCE_DIR}/third_party/memmem.c
