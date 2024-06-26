@@ -754,7 +754,6 @@ add_dependencies(build_bundled_libs misc)
 
 include(BuildUsearch)
 libusearch_build()
-add_dependencies(build_bundled_libs usearch_static_c)
 
 if(DEFINED EXTRA_DEPENDENCIES_CMAKE)
     include(${EXTRA_DEPENDENCIES_CMAKE})

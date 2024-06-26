@@ -471,13 +471,13 @@ memtx_vector_index_new(struct memtx_engine *memtx, struct index_def *def)
 	index->dimension = def->opts.dimension;
 
 	usearch_init_options_t uopts = {
+		.metric_kind = (usearch_metric_kind_t) def->opts.vector_metric_kind,
+		.metric = NULL,
+		.quantization = usearch_scalar_f64_k,
 		.dimensions = (size_t) def->opts.dimension,
 		.connectivity = def->opts.connectivity,
 		.expansion_add = def->opts.expansion_add,
 		.expansion_search = def->opts.expansion_search,
-		.metric_kind = (usearch_metric_kind_t) def->opts.vector_metric_kind,
-		.metric = NULL,
-		.quantization = usearch_scalar_f64_k,
 	};
 
 	usearch_error_t uerror = NULL;
