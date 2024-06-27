@@ -44,6 +44,14 @@ usearch_index_t tt_usearch_init(usearch_init_options_t *options, usearch_error_t
 		return NULL;
 	}
 
+	try {
+		usearch_reserve(index, 1024, uerror);
+	} catch(std::exception &e) {
+		usearch_free(index, uerror);
+		*uerror = e.what();
+		return NULL;
+	}
+
 	return index;
 }
 

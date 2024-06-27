@@ -237,7 +237,7 @@ memtx_vector_index_replace(struct index *base, struct tuple *old_tuple,
 	usearch_error_t uerror = NULL;
 
 	int64_t dim = index->base.def->opts.dimension;
-	tt_usearch_vector_t vec = (tt_usearch_vector_t) xcalloc(dim, sizeof(tt_usearch_vector_t));
+	tt_usearch_vector_t vec = (tt_usearch_vector_t) xcalloc(dim, sizeof(*vec));
 	usearch_key_t key;
 
 	if (new_tuple) {
@@ -478,6 +478,7 @@ memtx_vector_index_new(struct memtx_engine *memtx, struct index_def *def)
 		.connectivity = def->opts.connectivity,
 		.expansion_add = def->opts.expansion_add,
 		.expansion_search = def->opts.expansion_search,
+		.multi = 0,
 	};
 
 	usearch_error_t uerror = NULL;
