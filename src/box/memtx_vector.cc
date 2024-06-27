@@ -132,7 +132,7 @@ extract_vector(tt_usearch_vector_t vec, struct tuple *tuple,
 static inline int
 extract_key(usearch_key_t *key, struct tuple *tuple, struct index_def *index_def) {
 	const char *pk = tuple_field_by_part(tuple, index_def->pk_def->parts, MULTIKEY_NONE);
-	*key = mp_decode_int(&pk);
+	*key = mp_decode_uint(&pk);
 	return 0;
 }
 
@@ -246,7 +246,7 @@ memtx_vector_index_replace(struct index *base, struct tuple *old_tuple,
 		if (extract_key(&key, new_tuple, base->def) != 0)
 			return -1;
 
-		tt_usearch_add(&index->tree, key, vec, &uerror);
+		tt_usearch_add(index->tree, key, vec, &uerror);
 		if (uerror != NULL) {
 			diag_set(ClientError, ER_SYSTEM, tt_sprintf("usearch_add failed: %s", uerror));
 			return -1;
@@ -258,7 +258,7 @@ memtx_vector_index_replace(struct index *base, struct tuple *old_tuple,
 		if (extract_key(&key, old_tuple, base->def) != 0)
 			return -1;
 
-		tt_usearch_remove(&index->tree, key, &uerror);
+		tt_usearch_remove(index->tree, key, &uerror);
 		if (uerror != NULL) {
 			diag_set(ClientError, ER_SYSTEM, tt_sprintf("usearch_remove failed: %s", uerror));
 			return -1;
@@ -272,10 +272,11 @@ static int
 memtx_vector_index_reserve(struct index *base, uint32_t size_hint)
 {
 	(void)size_hint;
-	struct memtx_vector_index *index = (struct memtx_vector_index *)base;
+	(void)base;
+	//struct memtx_vector_index *index = (struct memtx_vector_index *)base;
 
 	usearch_error_t uerror = NULL;
-	tt_usearch_reserve(index->tree, size_hint, &uerror);
+	//tt_usearch_reserve(index->tree, size_hint, &uerror);
 
 	if (uerror != NULL) {
 		/* same error as in mempool_alloc */
@@ -475,14 +476,18 @@ memtx_vector_index_new(struct memtx_engine *memtx, struct index_def *def)
 		.metric = NULL,
 		.quantization = usearch_scalar_f64_k,
 		.dimensions = (size_t) def->opts.dimension,
-		.connectivity = def->opts.connectivity,
-		.expansion_add = def->opts.expansion_add,
-		.expansion_search = def->opts.expansion_search,
+//		.connectivity = def->opts.connectivity,
+		.connectivity = 3,
+		.expansion_add = 0,
+		.expansion_search = 0,
+//		.expansion_add = def->opts.expansion_add,
+//		.expansion_search = def->opts.expansion_search,
 		.multi = 0,
 	};
 
 	usearch_error_t uerror = NULL;
 	index->tree = tt_usearch_init(&uopts, &uerror);
+	fprintf(stderr, "index->tree %p\n", index->tree);
 	if (uerror != NULL) {
 		diag_set(UnsupportedIndexFeature, def,
 			 tt_sprintf("%s", uerror));
