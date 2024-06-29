@@ -94,8 +94,8 @@ mp_decode_num(const char **data, uint32_t fieldno, double *ret)
 }
 
 /**
- * Extract coordinates of rectangle from message packed string.
- * There must be <count> or <count * 2> numbers in that string.
+ * Extract vector where each component is a double.
+ * msgpacked string *mp must contain dimension numbers.
  */
 static inline int
 mp_decode_vector(tt_usearch_vector_t vec, unsigned dimension,
@@ -109,15 +109,14 @@ mp_decode_vector(tt_usearch_vector_t vec, unsigned dimension,
 			vec[i] = c;
 		}
 	} else {
-		diag_set(ClientError, ER_ILLEGAL_PARAMS,
-			 tt_sprintf("Index requires vector dimension %d got %d", dimension, count));
+		diag_set(ClientError, ER_PROC_C, tt_sprintf("Index requires vector dimension %d got %d", dimension, count));
 		return -1;
 	}
 	return 0;
 }
 
 static inline int
-extract_vector(tt_usearch_vector_t vec, struct tuple *tuple,
+extract_vector_from_tuple(tt_usearch_vector_t vec, struct tuple *tuple,
 		  struct index_def *index_def)
 {
 	assert(index_def->key_def->part_count == 1);
@@ -130,7 +129,15 @@ extract_vector(tt_usearch_vector_t vec, struct tuple *tuple,
 }
 
 static inline int
-extract_key(usearch_key_t *key, struct tuple *tuple, struct index_def *index_def) {
+extract_vector_from_key(tt_usearch_vector_t vec, unsigned dimension, const char *key)
+{
+	uint32_t count = mp_decode_array(&key);
+	return mp_decode_vector(vec, dimension, key, count);
+}
+
+
+static inline int
+extract_key_from_tuple(usearch_key_t *key, struct tuple *tuple, struct index_def *index_def) {
 	const char *pk = tuple_field_by_part(tuple, index_def->pk_def->parts, MULTIKEY_NONE);
 	*key = mp_decode_uint(&pk);
 	return 0;
@@ -144,7 +151,7 @@ memtx_vector_index_destroy(struct index *base)
 {
 	struct memtx_vector_index *index = (struct memtx_vector_index *)base;
 	usearch_error_t uerror = NULL;
-	tt_usearch_free(&index->tree, &uerror);
+	tt_usearch_free(index->tree, &uerror);
 	free(index);
 }
 
@@ -196,18 +203,25 @@ static int
 memtx_vector_index_get_internal(struct index *base, const char *key,
 			       uint32_t part_count, struct tuple **result)
 {
+	(void) part_count;
+
 	struct memtx_vector_index *index = (struct memtx_vector_index *)base;
 	*result = NULL;
 
 	int64_t dim = index->base.def->opts.dimension;
 	tt_usearch_vector_t query = (tt_usearch_vector_t) xcalloc(dim, sizeof(tt_usearch_vector_t));
-	if (mp_decode_vector(query, dim, key, part_count) != 0)
+	if (extract_vector_from_key(query, dim, key) != 0)
 		return -1;
 
 	usearch_error_t uerror = NULL;
 	usearch_key_t keys[1];
 	usearch_distance_t dists[1];
-	size_t matches = tt_usearch_search(&index->tree, query, 1, keys, dists, &uerror);
+	size_t matches = tt_usearch_search(index->tree, query, 1, keys, dists, &uerror);
+
+	// free resources asap
+	// TODO: we should use buffer for that
+	free(query);
+
 	if (uerror != NULL) {
 		diag_set(ClientError, ER_PROC_C, tt_sprintf("search exception: %s", uerror));
 		return -1;
@@ -238,12 +252,13 @@ memtx_vector_index_replace(struct index *base, struct tuple *old_tuple,
 
 	int64_t dim = index->base.def->opts.dimension;
 	tt_usearch_vector_t vec = (tt_usearch_vector_t) xcalloc(dim, sizeof(*vec));
+	// TODO: fix memleak
 	usearch_key_t key;
 
 	if (new_tuple) {
-		if (extract_vector(vec, new_tuple, base->def) != 0)
+		if (extract_vector_from_tuple(vec, new_tuple, base->def) != 0)
 			return -1;
-		if (extract_key(&key, new_tuple, base->def) != 0)
+		if (extract_key_from_tuple(&key, new_tuple, base->def) != 0)
 			return -1;
 
 		tt_usearch_add(index->tree, key, vec, &uerror);
@@ -253,9 +268,9 @@ memtx_vector_index_replace(struct index *base, struct tuple *old_tuple,
 		}
 	}
 	if (old_tuple) {
-		if (extract_vector(vec, old_tuple, base->def) != 0)
+		if (extract_vector_from_tuple(vec, old_tuple, base->def) != 0)
 			return -1;
-		if (extract_key(&key, old_tuple, base->def) != 0)
+		if (extract_key_from_tuple(&key, old_tuple, base->def) != 0)
 			return -1;
 
 		tt_usearch_remove(index->tree, key, &uerror);
@@ -353,7 +368,7 @@ index_vector_iterator_free(struct iterator *i)
 	mempool_free(itr->pool, itr);
 }
 
-static int vector_search(usearch_index_t *index, struct vector_iterator *itr)
+static int vector_search(usearch_index_t index, struct vector_iterator *itr)
 {
 	usearch_error_t uerror = NULL;
 	size_t n_matches = tt_usearch_search(index, itr->query, itr->result_count, itr->keys, itr->dists, &uerror);
@@ -370,6 +385,7 @@ memtx_vector_index_create_iterator(struct index *base, enum iterator_type type,
 				 const char *key, uint32_t part_count,
 				 const char *pos)
 {
+	(void) part_count;
 	(void) pos;
 	if (type != ITER_NEIGHBOR) {
 		diag_set(IllegalParams, "usearch index supports only NEIGHBOUR type");
@@ -390,7 +406,7 @@ memtx_vector_index_create_iterator(struct index *base, enum iterator_type type,
 	int64_t dim = index->base.def->opts.dimension;
 	tt_usearch_vector_t query = (tt_usearch_vector_t) xcalloc(dim, sizeof(tt_usearch_vector_t));
 
-	if (mp_decode_vector(query, dim, key, part_count) != 0)
+	if (extract_vector_from_key(query, dim, key) != 0)
 		return NULL;
 
 	iterator_create(&it->base, base);
@@ -407,7 +423,7 @@ memtx_vector_index_create_iterator(struct index *base, enum iterator_type type,
 
 	it->impl.space_id = base->def->space_id;
 
-	if (vector_search(&index->tree, &it->impl) == -1) {
+	if (vector_search(index->tree, &it->impl) == -1) {
 		return NULL;
 	}
 	return (struct iterator *)it;
@@ -476,18 +492,14 @@ memtx_vector_index_new(struct memtx_engine *memtx, struct index_def *def)
 		.metric = NULL,
 		.quantization = usearch_scalar_f64_k,
 		.dimensions = (size_t) def->opts.dimension,
-//		.connectivity = def->opts.connectivity,
-		.connectivity = 3,
-		.expansion_add = 0,
-		.expansion_search = 0,
-//		.expansion_add = def->opts.expansion_add,
-//		.expansion_search = def->opts.expansion_search,
+		.connectivity = def->opts.connectivity,
+		.expansion_add = def->opts.expansion_add,
+		.expansion_search = def->opts.expansion_search,
 		.multi = 0,
 	};
 
 	usearch_error_t uerror = NULL;
 	index->tree = tt_usearch_init(&uopts, &uerror);
-	fprintf(stderr, "index->tree %p\n", index->tree);
 	if (uerror != NULL) {
 		diag_set(UnsupportedIndexFeature, def,
 			 tt_sprintf("%s", uerror));
