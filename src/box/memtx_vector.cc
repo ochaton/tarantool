@@ -74,8 +74,8 @@ struct vector_iterator {
 };
 
 struct index_vector_iterator {
-        struct iterator base;
-        struct vector_iterator impl;
+	struct iterator base;
+	struct vector_iterator impl;
 	/** Memory pool the iterator was allocated from. */
 	struct mempool *pool;
 };
@@ -255,18 +255,6 @@ memtx_vector_index_replace(struct index *base, struct tuple *old_tuple,
 	// TODO: fix memleak
 	usearch_key_t key;
 
-	if (new_tuple) {
-		if (extract_vector_from_tuple(vec, new_tuple, base->def) != 0)
-			return -1;
-		if (extract_key_from_tuple(&key, new_tuple, base->def) != 0)
-			return -1;
-
-		tt_usearch_add(index->tree, key, vec, &uerror);
-		if (uerror != NULL) {
-			diag_set(ClientError, ER_SYSTEM, tt_sprintf("usearch_add failed: %s", uerror));
-			return -1;
-		}
-	}
 	if (old_tuple) {
 		if (extract_vector_from_tuple(vec, old_tuple, base->def) != 0)
 			return -1;
@@ -275,7 +263,19 @@ memtx_vector_index_replace(struct index *base, struct tuple *old_tuple,
 
 		tt_usearch_remove(index->tree, key, &uerror);
 		if (uerror != NULL) {
-			diag_set(ClientError, ER_SYSTEM, tt_sprintf("usearch_remove failed: %s", uerror));
+			diag_set(ClientError, ER_PROC_C, tt_sprintf("usearch_remove failed: %s", uerror));
+			return -1;
+		}
+	}
+	if (new_tuple) {
+		if (extract_vector_from_tuple(vec, new_tuple, base->def) != 0)
+			return -1;
+		if (extract_key_from_tuple(&key, new_tuple, base->def) != 0)
+			return -1;
+
+		tt_usearch_add(index->tree, key, vec, &uerror);
+		if (uerror != NULL) {
+			diag_set(ClientError, ER_PROC_C, tt_sprintf("usearch_add failed: %s", uerror));
 			return -1;
 		}
 	}
@@ -311,6 +311,7 @@ vector_iterator_init(struct vector_iterator *itr)
 	assert(itr->result_count > 0);
 	itr->keys = (usearch_key_t *) xcalloc(itr->result_count, sizeof(usearch_key_t));
 	itr->dists = (usearch_distance_t *) xcalloc(itr->result_count, sizeof(usearch_distance_t));
+	itr->position = 0;
 }
 
 static void
@@ -329,7 +330,7 @@ static struct tuple *vector_iterator_next(struct vector_iterator *itr, struct tu
 		usearch_key_t key = itr->keys[itr->position];
 
 		char pk[10];
-		mp_encode_int(pk, key);
+		mp_encode_uint(pk, key);
 
 		struct space *space = space_by_id(itr->space_id);
 		++itr->position;
