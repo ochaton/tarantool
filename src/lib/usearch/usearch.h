@@ -31,26 +31,33 @@
 
 #pragma once
 
+#include <cstddef>
+#include "usearch/c/usearch.h"
+
+struct tt_usearch_index {
+	usearch_index_t usearch;
+	size_t reserved;
+	size_t size;
+};
+
 #if defined(__cplusplus)
 extern "C" {
 #endif /* defined(__cplusplus) */
 
-#include "usearch/c/usearch.h"
-
 typedef double* tt_usearch_vector_t;
 
-extern usearch_index_t tt_usearch_init(usearch_init_options_t* options, usearch_error_t *uerror);
-extern void tt_usearch_free(usearch_index_t index, usearch_error_t* uerror);
+extern tt_usearch_index *tt_usearch_init(usearch_init_options_t* options, usearch_error_t *uerror);
+extern void tt_usearch_free(tt_usearch_index *index, usearch_error_t* uerror);
 
-extern size_t tt_usearch_size(usearch_index_t index, usearch_error_t* uerror);
-extern size_t tt_usearch_memory_usage(usearch_index_t index, usearch_error_t* uerror);
+extern size_t tt_usearch_size(tt_usearch_index *index, usearch_error_t* uerror);
+extern size_t tt_usearch_memory_usage(tt_usearch_index *index, usearch_error_t* uerror);
 
-extern size_t tt_usearch_search(usearch_index_t index, tt_usearch_vector_t query, size_t limit, usearch_key_t *keys, usearch_distance_t* dists, usearch_error_t* uerror);
+extern size_t tt_usearch_search(tt_usearch_index *index, tt_usearch_vector_t query, size_t limit, usearch_key_t *keys, usearch_distance_t* dists, usearch_error_t* uerror);
 
-extern void tt_usearch_add(usearch_index_t index, usearch_key_t key, tt_usearch_vector_t vector, usearch_error_t* uerror);
-extern void tt_usearch_remove(usearch_index_t index, usearch_key_t key, usearch_error_t* uerror);
+extern void tt_usearch_add(tt_usearch_index *index, usearch_key_t key, tt_usearch_vector_t vector, usearch_error_t* uerror);
+extern void tt_usearch_remove(tt_usearch_index *index, usearch_key_t key, usearch_error_t* uerror);
 
-extern void tt_usearch_reserve(usearch_index_t index, size_t capacity, usearch_error_t* uerror);
+extern void tt_usearch_reserve(tt_usearch_index *index, size_t capacity, usearch_error_t* uerror);
 
 #if defined(__cplusplus)
 } /* extern "C" */

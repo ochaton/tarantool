@@ -33,7 +33,7 @@
 #include <exception>
 #include <iostream>
 
-usearch_index_t tt_usearch_init(usearch_init_options_t *options, usearch_error_t *uerror)
+tt_usearch_index *tt_usearch_init(usearch_init_options_t *options, usearch_error_t *uerror)
 {
 	usearch_index_t index;
 	try {
@@ -43,89 +43,91 @@ usearch_index_t tt_usearch_init(usearch_init_options_t *options, usearch_error_t
 		return NULL;
 	}
 
-	try {
-		usearch_reserve(index, 1024, uerror);
-	} catch(std::exception &e) {
-		usearch_free(index, uerror);
-		*uerror = "usearch_reserve failed";
-		return NULL;
-	}
+	tt_usearch_index *ret = new tt_usearch_index{};
+	ret->usearch = index;
+	ret->reserved = 0;
 
-	return index;
+	return ret;
 }
 
-void tt_usearch_free(usearch_index_t index, usearch_error_t* uerror)
+void tt_usearch_free(tt_usearch_index *index, usearch_error_t* uerror)
 {
 	try {
-		usearch_free(index, uerror);
+		usearch_free(index->usearch, uerror);
 	} catch (std::exception &e) {
 		*uerror = e.what();
 	}
 }
 
-size_t tt_usearch_size(usearch_index_t index, usearch_error_t *uerror)
+size_t tt_usearch_size(tt_usearch_index *index, usearch_error_t *uerror)
 {
 	size_t size;
 	try {
 
-		size = usearch_size(index, uerror);
+		size = usearch_size(index->usearch, uerror);
 	} catch (std::exception &e) {
 		*uerror = e.what();
 	}
 	return size;
 }
 
-size_t tt_usearch_memory_usage(usearch_index_t index, usearch_error_t *uerror)
+size_t tt_usearch_memory_usage(tt_usearch_index *index, usearch_error_t *uerror)
 {
 	size_t size;
 	try {
 
-		size = usearch_memory_usage(index, uerror);
+		size = usearch_memory_usage(index->usearch, uerror);
 	} catch (std::exception &e) {
 		*uerror = e.what();
 	}
 	return size;
 }
 
-size_t tt_usearch_search(usearch_index_t index, tt_usearch_vector_t query, size_t limit, usearch_key_t *keys, usearch_distance_t *dists, usearch_error_t *uerror)
+size_t tt_usearch_search(tt_usearch_index *index, tt_usearch_vector_t query, size_t limit, usearch_key_t *keys, usearch_distance_t *dists, usearch_error_t *uerror)
 {
 	size_t matches;
 	try {
-		matches = usearch_search(index, query, usearch_scalar_f64_k, limit, keys, dists, uerror);
+		matches = usearch_search(index->usearch, query, usearch_scalar_f32_k, limit, keys, dists, uerror);
 	} catch(std::exception &e) {
 		*uerror = e.what();
 	}
 	return matches;
 }
 
-void tt_usearch_add(usearch_index_t index, usearch_key_t key, tt_usearch_vector_t vector, usearch_error_t *uerror)
+void tt_usearch_add(tt_usearch_index *index, usearch_key_t key, tt_usearch_vector_t vector, usearch_error_t *uerror)
 {
-//	try {
-//		usearch_reserve(index, 1024, uerror);
-//	} catch(std::exception &e) {
-//		std::cerr << "usearch_add (reserve): " << e.what() << std::endl;
-//		return;
-//	}
+	size_t size = usearch_size(index->usearch, uerror);
+	if (index->reserved == size) {
+		size_t next_reserve = 2*(index->reserved+1);
+		try {
+			usearch_reserve(index->usearch, next_reserve, uerror);
+		} catch(std::exception &e) {
+			*uerror = e.what();
+			return;
+		}
+		index->reserved = next_reserve;
+	}
 	try {
-		usearch_add(index, key, &vector[0], usearch_scalar_f64_k, uerror);
+		usearch_add(index->usearch, key, &vector[0], usearch_scalar_f32_k, uerror);
 	} catch(std::exception &e) {
 		*uerror = e.what();
 	}
 }
 
-void tt_usearch_remove(usearch_index_t index, usearch_key_t key, usearch_error_t *uerror)
+void tt_usearch_remove(tt_usearch_index *index, usearch_key_t key, usearch_error_t *uerror)
 {
 	try {
-		usearch_remove(index, key, uerror);
+		usearch_remove(index->usearch, key, uerror);
 	} catch(std::exception &e) {
 		*uerror = e.what();
 	}
 }
 
-void tt_usearch_reserve(usearch_index_t index, size_t capacity, usearch_error_t *uerror)
+void tt_usearch_reserve(tt_usearch_index *index, size_t capacity, usearch_error_t *uerror)
 {
 	try {
-		usearch_reserve(index, capacity, uerror);
+		usearch_reserve(index->usearch, capacity, uerror);
+		index->reserved = capacity;
 	} catch(const std::exception& e) {
 		*uerror = e.what();
 	}

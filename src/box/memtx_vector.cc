@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2016, Tarantool AUTHORS, please see AUTHORS file.
+ * Copyright 2010-2024, Tarantool AUTHORS, please see AUTHORS file.
  *
  * Redistribution and use in source and binary forms, with or
  * without modification, are permitted provided that the following
@@ -51,7 +51,7 @@
 struct memtx_vector_index {
 	struct index base;
 	unsigned dimension;
-	usearch_index_t tree;
+	tt_usearch_index *tree;
 };
 
 struct vector_iterator {
@@ -252,35 +252,39 @@ memtx_vector_index_replace(struct index *base, struct tuple *old_tuple,
 
 	int64_t dim = index->base.def->opts.dimension;
 	tt_usearch_vector_t vec = (tt_usearch_vector_t) xcalloc(dim, sizeof(*vec));
-	// TODO: fix memleak
 	usearch_key_t key;
 
 	if (old_tuple) {
 		if (extract_vector_from_tuple(vec, old_tuple, base->def) != 0)
-			return -1;
+			goto error;
 		if (extract_key_from_tuple(&key, old_tuple, base->def) != 0)
-			return -1;
+			goto error;
 
 		tt_usearch_remove(index->tree, key, &uerror);
 		if (uerror != NULL) {
 			diag_set(ClientError, ER_PROC_C, tt_sprintf("usearch_remove failed: %s", uerror));
-			return -1;
+			goto error;
 		}
 	}
 	if (new_tuple) {
 		if (extract_vector_from_tuple(vec, new_tuple, base->def) != 0)
-			return -1;
+			goto error;
 		if (extract_key_from_tuple(&key, new_tuple, base->def) != 0)
-			return -1;
+			goto error;
 
 		tt_usearch_add(index->tree, key, vec, &uerror);
 		if (uerror != NULL) {
 			diag_set(ClientError, ER_PROC_C, tt_sprintf("usearch_add failed: %s", uerror));
-			return -1;
+			goto error;
 		}
 	}
+
+	free(vec);
 	*result = old_tuple;
 	return 0;
+error:
+	free(vec);
+	return -1;
 }
 
 static int
@@ -288,10 +292,10 @@ memtx_vector_index_reserve(struct index *base, uint32_t size_hint)
 {
 	(void)size_hint;
 	(void)base;
-	//struct memtx_vector_index *index = (struct memtx_vector_index *)base;
+	struct memtx_vector_index *index = (struct memtx_vector_index *)base;
 
 	usearch_error_t uerror = NULL;
-	//tt_usearch_reserve(index->tree, size_hint, &uerror);
+	tt_usearch_reserve(index->tree, size_hint, &uerror);
 
 	if (uerror != NULL) {
 		/* same error as in mempool_alloc */
@@ -369,7 +373,7 @@ index_vector_iterator_free(struct iterator *i)
 	mempool_free(itr->pool, itr);
 }
 
-static int vector_search(usearch_index_t index, struct vector_iterator *itr)
+static int vector_search(tt_usearch_index *index, struct vector_iterator *itr)
 {
 	usearch_error_t uerror = NULL;
 	size_t n_matches = tt_usearch_search(index, itr->query, itr->result_count, itr->keys, itr->dists, &uerror);

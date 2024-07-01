@@ -56,9 +56,9 @@ const struct index_opts index_opts_default = {
 	/* .lsn                 = */ 0,
 	/* .func                = */ 0,
 	/* .hint                = */ INDEX_HINT_DEFAULT,
-	/* .connectivity        = */ 16,
-	/* .expansion_add       = */ 128,
-	/* .expansion_search    = */ 64,
+	/* .connectivity        = */ 3,
+	/* .expansion_add       = */ 0,
+	/* .expansion_search    = */ 0,
 	/* .vector_metric_kind  = */ VECTOR_METRIC_KIND_COS,
 };
 
