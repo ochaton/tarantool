@@ -172,6 +172,13 @@ memtx_vector_index_def_change_requires_rebuild(struct index *index,
 
 }
 
+static bool
+memtx_vector_index_depends_on_pk(struct index *index)
+{
+	(void) index;
+	return true;
+}
+
 static ssize_t
 memtx_vector_index_size(struct index *base)
 {
@@ -412,6 +419,7 @@ memtx_vector_index_create_iterator(struct index *base, enum iterator_type type,
 	tt_usearch_vector_t query = (tt_usearch_vector_t) xcalloc(dim, sizeof(tt_usearch_vector_t));
 
 	if (extract_vector_from_key(query, dim, key) != 0)
+		free(query);
 		return NULL;
 
 	iterator_create(&it->base, base);
@@ -429,6 +437,7 @@ memtx_vector_index_create_iterator(struct index *base, enum iterator_type type,
 	it->impl.space_id = base->def->space_id;
 
 	if (vector_search(index->tree, &it->impl) == -1) {
+		free(query);
 		return NULL;
 	}
 	return (struct iterator *)it;
@@ -444,7 +453,7 @@ static const struct index_vtab memtx_vector_index_vtab = {
 	/* .commit_modify = */ generic_index_commit_modify,
 	/* .commit_drop = */ generic_index_commit_drop,
 	/* .update_def = */ generic_index_update_def,
-	/* .depends_on_pk = */ generic_index_depends_on_pk,
+	/* .depends_on_pk = */ memtx_vector_index_depends_on_pk,
 	/* .def_change_requires_rebuild = */
 		memtx_vector_index_def_change_requires_rebuild,
 	/* .size = */ memtx_vector_index_size,
@@ -495,7 +504,7 @@ memtx_vector_index_new(struct memtx_engine *memtx, struct index_def *def)
 	usearch_init_options_t uopts = {
 		.metric_kind = (usearch_metric_kind_t) def->opts.vector_metric_kind,
 		.metric = NULL,
-		.quantization = usearch_scalar_f64_k,
+		.quantization = usearch_scalar_f32_k,
 		.dimensions = (size_t) def->opts.dimension,
 		.connectivity = def->opts.connectivity,
 		.expansion_add = def->opts.expansion_add,

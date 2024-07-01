@@ -33,6 +33,17 @@
 #include <exception>
 #include <iostream>
 
+enum {
+	TT_USEARCH_MAX_RESERVE = 8192,
+};
+
+static inline
+size_t next_reserve(size_t size)
+{
+	size_t r = 2*(size+1);
+	return r > TT_USEARCH_MAX_RESERVE ? size+TT_USEARCH_MAX_RESERVE : r;
+}
+
 tt_usearch_index *tt_usearch_init(usearch_init_options_t *options, usearch_error_t *uerror)
 {
 	usearch_index_t index;
@@ -44,6 +55,7 @@ tt_usearch_index *tt_usearch_init(usearch_init_options_t *options, usearch_error
 	}
 
 	tt_usearch_index *ret = new tt_usearch_index{};
+	ret->quantization = options->quantization;
 	ret->usearch = index;
 	ret->reserved = 0;
 
@@ -54,6 +66,7 @@ void tt_usearch_free(tt_usearch_index *index, usearch_error_t* uerror)
 {
 	try {
 		usearch_free(index->usearch, uerror);
+		delete index;
 	} catch (std::exception &e) {
 		*uerror = e.what();
 	}
@@ -87,7 +100,7 @@ size_t tt_usearch_search(tt_usearch_index *index, tt_usearch_vector_t query, siz
 {
 	size_t matches;
 	try {
-		matches = usearch_search(index->usearch, query, usearch_scalar_f32_k, limit, keys, dists, uerror);
+		matches = usearch_search(index->usearch, query, index->quantization, limit, keys, dists, uerror);
 	} catch(std::exception &e) {
 		*uerror = e.what();
 	}
@@ -98,17 +111,17 @@ void tt_usearch_add(tt_usearch_index *index, usearch_key_t key, tt_usearch_vecto
 {
 	size_t size = usearch_size(index->usearch, uerror);
 	if (index->reserved == size) {
-		size_t next_reserve = 2*(index->reserved+1);
+		size_t new_reserve = next_reserve(index->reserved);
 		try {
-			usearch_reserve(index->usearch, next_reserve, uerror);
+			usearch_reserve(index->usearch, new_reserve, uerror);
 		} catch(std::exception &e) {
 			*uerror = e.what();
 			return;
 		}
-		index->reserved = next_reserve;
+		index->reserved = new_reserve;
 	}
 	try {
-		usearch_add(index->usearch, key, &vector[0], usearch_scalar_f32_k, uerror);
+		usearch_add(index->usearch, key, &vector[0], index->quantization, uerror);
 	} catch(std::exception &e) {
 		*uerror = e.what();
 	}

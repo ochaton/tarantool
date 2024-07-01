@@ -1542,6 +1542,10 @@ local index_options = {
     bloom_fpr = 'number',
     func = 'number, string',
     hint = 'boolean',
+    metric_kind = 'string',
+    connectivity = 'number',
+    expansion_add = 'number',
+    expansion_search = 'number',
 }
 
 local function jsonpaths_from_idx_parts(parts)
@@ -1645,6 +1649,11 @@ box.schema.index.create = atomic_wrapper(function(space_id, name, options)
         }
     else
         options_defaults = {}
+        if options.type == 'usearch' then
+            options_defaults.connectivity = 3
+            options_defaults.expansion_add = 0
+            options_defaults.expansion_search = 0
+        end
     end
     options = update_param_table(options, options_defaults)
     if options.hint and options.func then

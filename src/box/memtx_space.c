@@ -894,7 +894,6 @@ memtx_space_check_index_def(struct space *space, struct index_def *index_def)
 			return -1;
 		}
 		if (key_def->for_func_index) {
-			// TODO: actually USEARCH allows to pass function
 			diag_set(ClientError, ER_MODIFY_INDEX,
 				 index_def->name, space_name(space),
 				 "USEARCH index can not use a function");
