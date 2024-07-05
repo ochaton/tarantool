@@ -418,9 +418,10 @@ memtx_vector_index_create_iterator(struct index *base, enum iterator_type type,
 	int64_t dim = index->base.def->opts.dimension;
 	tt_usearch_vector_t query = (tt_usearch_vector_t) xcalloc(dim, sizeof(tt_usearch_vector_t));
 
-	if (extract_vector_from_key(query, dim, key) != 0)
+	if (extract_vector_from_key(query, dim, key) != 0) {
 		free(query);
 		return NULL;
+	}
 
 	iterator_create(&it->base, base);
 	it->pool = &memtx->iterator_pool;
