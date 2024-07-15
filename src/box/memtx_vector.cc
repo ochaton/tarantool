@@ -45,6 +45,8 @@
 #include "space.h"
 #include "schema.h"
 #include "memtx_engine.h"
+#include "info/info.h"
+
 
 #include "lib/usearch/usearch.h"
 
@@ -61,7 +63,7 @@ struct vector_iterator {
 	size_t result_count;
 
 	/* Current position of the iterator */
-	size_t position;
+	ssize_t position;
 
 	/* Initial Query Vector of dim size */
 	tt_usearch_vector_t query;
@@ -252,7 +254,7 @@ memtx_vector_index_replace(struct index *base, struct tuple *old_tuple,
 	(void)mode;
 	struct memtx_vector_index *index = (struct memtx_vector_index *)base;
 
-	/* RTREE index doesn't support ordering. */
+	/* VECTOR index doesn't support ordering. */
 	*successor = NULL;
 
 	usearch_error_t uerror = NULL;
@@ -313,6 +315,19 @@ memtx_vector_index_reserve(struct index *base, uint32_t size_hint)
 	return 0;
 }
 
+static void
+memtx_vector_index_stat(struct index *index, struct info_handler *h)
+{
+	struct memtx_vector_index *vindex = (struct memtx_vector_index *) index;
+	info_begin(h);
+
+	info_append_int(h, "dimension", vindex->dimension);
+	info_append_int(h, "reserved", vindex->tree->reserved);
+	info_append_int(h, "memory_usage", tt_usearch_memory_usage(vindex->tree, NULL));
+	info_append_int(h, "size", tt_usearch_size(vindex->tree, NULL));
+
+	info_end(h);
+}
 
 /**************************** Vector Iterator ****************************/
 
@@ -322,7 +337,7 @@ vector_iterator_init(struct vector_iterator *itr)
 	assert(itr->result_count > 0);
 	itr->keys = (usearch_key_t *) xcalloc(itr->result_count, sizeof(usearch_key_t));
 	itr->dists = (usearch_distance_t *) xcalloc(itr->result_count, sizeof(usearch_distance_t));
-	itr->position = 0;
+	itr->position = -1;
 }
 
 static void
@@ -334,21 +349,34 @@ vector_iterator_destroy(struct vector_iterator *itr)
 	itr->result_count = 0;
 }
 
-static struct tuple *vector_iterator_next(struct vector_iterator *itr, struct tuple **result)
+static struct tuple *
+vector_iterator_next(struct vector_iterator *itr, struct tuple **result)
 {
 	*result = NULL;
-	if (itr->position < itr->result_count) {
+	if (itr->position < (ssize_t) itr->result_count) {
+		++itr->position;
+		assert(itr->position >= 0);
 		usearch_key_t key = itr->keys[itr->position];
 
 		char pk[10];
 		mp_encode_uint(pk, key);
 
 		struct space *space = space_by_id(itr->space_id);
-		++itr->position;
-
 		index_get_internal(space->index[0], pk, 1, result);
 	}
 	return *result;
+}
+
+static double
+index_vector_iterator_fetch_distance(struct iterator *i)
+{
+	struct index_vector_iterator *itr = (struct index_vector_iterator *)i;
+	if (itr->impl.position < (ssize_t) itr->impl.result_count) {
+		float dist = itr->impl.dists[itr->impl.position];
+		fprintf(stderr, "pos: %ld dist: %f\n", itr->impl.position, dist);
+		return (double) dist;
+	}
+	return 0.0;
 }
 
 static int
@@ -388,6 +416,9 @@ static int vector_search(tt_usearch_index *index, struct vector_iterator *itr)
 		diag_set(ClientError, ER_PROC_C, tt_sprintf("usearch: %s", uerror));
 		return -1;
 	}
+	for (size_t i = 0; i < n_matches; i++) {
+		fprintf(stderr, "dist[%zu] = %f\n", i, itr->dists[i]);
+	}
 	itr->result_count = n_matches;
 	return 0;
 }
@@ -395,12 +426,16 @@ static int vector_search(tt_usearch_index *index, struct vector_iterator *itr)
 static struct iterator *
 memtx_vector_index_create_iterator(struct index *base, enum iterator_type type,
 				 const char *key, uint32_t part_count,
-				 const char *pos)
+				 const char *pos, uint32_t limit)
 {
 	(void) part_count;
 	(void) pos;
 	if (type != ITER_NEIGHBOR) {
 		diag_set(IllegalParams, "usearch index supports only NEIGHBOUR type");
+		return NULL;
+	}
+	if (limit == 0) {
+		diag_set(IllegalParams, "usearch index requires limit to be passed");
 		return NULL;
 	}
 
@@ -429,10 +464,11 @@ memtx_vector_index_create_iterator(struct index *base, enum iterator_type type,
 	it->base.next = memtx_iterator_next;
 	it->base.position = generic_iterator_position;
 	it->base.free = index_vector_iterator_free;
+	it->base.fetch_distance = index_vector_iterator_fetch_distance;
 
 	it->impl.query = query;
 	it->impl.dim = dim;
-	it->impl.result_count = index->base.def->opts.expansion_search;
+	it->impl.result_count = limit;
 	vector_iterator_init(&it->impl);
 
 	it->impl.space_id = base->def->space_id;
@@ -468,7 +504,7 @@ static const struct index_vtab memtx_vector_index_vtab = {
 	/* .replace = */ memtx_vector_index_replace,
 	/* .create_iterator = */ memtx_vector_index_create_iterator,
 	/* .create_read_view = */ generic_index_create_read_view,
-	/* .stat = */ generic_index_stat,
+	/* .stat = */ memtx_vector_index_stat,
 	/* .compact = */ generic_index_compact,
 	/* .reset_stat = */ generic_index_reset_stat,
 	/* .begin_build = */ generic_index_begin_build,

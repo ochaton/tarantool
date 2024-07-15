@@ -3765,8 +3765,9 @@ vinyl_iterator_free(struct iterator *base)
 static struct iterator *
 vinyl_index_create_iterator(struct index *base, enum iterator_type type,
 			    const char *key, uint32_t part_count,
-			    const char *pos)
+			    const char *pos, uint32_t limit)
 {
+	(void) limit;
 	struct vy_lsm *lsm = vy_lsm(base);
 	struct vy_env *env = vy_env(base->engine);
 

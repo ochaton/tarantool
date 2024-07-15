@@ -341,8 +341,9 @@ memtx_bitset_index_replace(struct index *base, struct tuple *old_tuple,
 static struct iterator *
 memtx_bitset_index_create_iterator(struct index *base, enum iterator_type type,
 				   const char *key, uint32_t part_count,
-				   const char *pos)
+				   const char *pos, uint32_t limit)
 {
+	(void) limit;
 	struct memtx_bitset_index *index = (struct memtx_bitset_index *)base;
 	struct memtx_engine *memtx = (struct memtx_engine *)base->engine;
 

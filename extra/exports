@@ -107,6 +107,7 @@ box_schema_needs_upgrade
 box_schema_upgrade_begin
 box_schema_upgrade_end
 box_schema_version
+box_search_ffi
 box_select_ffi
 box_sequence_current
 box_sequence_next

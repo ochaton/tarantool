@@ -174,6 +174,10 @@ ffi.cdef[[
                    struct port *port, int64_t iterator, uint64_t offset,
                    uint64_t limit);
 
+    int
+    box_search_ffi(uint32_t space_id, uint32_t index_id, const char *key,
+                const char *key_end, struct port *port, uint64_t limit);
+
     enum priv_type {
         PRIV_R = 1,
         PRIV_W = 2,
@@ -2646,6 +2650,58 @@ base_index_mt.select_luac = function(index, key, opts)
         offset, limit, key, after, fetch_pos)
 end
 
+base_index_mt.search_ffi = function(index, vector, opts)
+    check_index_arg(index, 'search', 2)
+    if index.type ~= 'USEARCH' then
+        box.error(box.error.ILLEGAL_PARAMS,
+            'index:search(...) is applicable only for USEARCH indexes', 1)
+    end
+
+    vector = keify(vector)
+    local ibuf = cord_ibuf_take()
+    local key, key_end = tuple_encode(ibuf, vector, 2)
+    local key_is_nil = key + 1 >= key_end
+
+    -- defaults:
+    local limit = 0
+    local fetch_dist = false
+
+    if type(opts) == "table" then
+        if opts.limit ~= nil then
+            limit = opts.limit
+        end
+        if opts.fetch_dist ~= nil then
+            fetch_dist = opts.fetch_dist
+        end
+    end
+
+    local region_svp = builtin.box_region_used()
+
+    local nok = builtin.box_search_ffi(index.space_id, index.id, key, key_end, port, limit) ~= 0
+
+    builtin.box_region_truncate(region_svp)
+    cord_ibuf_put(ibuf)
+    if nok then
+        box.error(box.error.last(), 2)
+    end
+
+    local ret = table.new(port_c.size, 0)
+    local dists = table.new(port_c.size, 0)
+
+    local entry = port_c.first
+    for i = 1, tonumber(port_c.size) do
+        if entry.type == builtin.PORT_C_ENTRY_TUPLE then
+            ret[#ret+1] = tuple_bless(entry.tuple)
+        elseif entry.type == builtin.PORT_C_ENTRY_DOUBLE then
+            dists[#dists+1] = entry.number
+        end
+        entry = entry.next
+    end
+
+    builtin.port_destroy(port);
+    return ret, dists
+end
+
 base_index_mt.update = function(index, key, ops)
     check_index_arg(index, 'update', 2)
     return internal.update(index.space_id, index.id, keify(key), ops);
@@ -2696,7 +2752,7 @@ base_index_mt.tuple_pos = function(index, tuple)
     return ret
 end
 
-local read_ops = {'select', 'get', 'min', 'max', 'count', 'random', 'pairs'}
+local read_ops = {'select', 'get', 'min', 'max', 'count', 'random', 'pairs', 'search'}
 for _, op in ipairs(read_ops) do
     vinyl_index_mt[op] = base_index_mt[op..'_luac']
     memtx_index_mt[op] = base_index_mt[op..'_ffi']

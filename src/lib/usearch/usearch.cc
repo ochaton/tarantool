@@ -38,10 +38,16 @@ enum {
 };
 
 static inline
+uint64_t next_pow2(uint64_t x) {
+	return x == 1 ? 1 : 1<<(64-__builtin_clzl(x-1));
+}
+
+static inline
 size_t next_reserve(size_t size)
 {
-	size_t r = 2*(size+1);
-	return r > TT_USEARCH_MAX_RESERVE ? size+TT_USEARCH_MAX_RESERVE : r;
+	size_t s2 = next_pow2(size);
+	size_t r = 2*s2;
+	return r > TT_USEARCH_MAX_RESERVE ? s2+TT_USEARCH_MAX_RESERVE : r;
 }
 
 tt_usearch_index *tt_usearch_init(usearch_init_options_t *options, usearch_error_t *uerror)
@@ -110,8 +116,10 @@ size_t tt_usearch_search(tt_usearch_index *index, tt_usearch_vector_t query, siz
 void tt_usearch_add(tt_usearch_index *index, usearch_key_t key, tt_usearch_vector_t vector, usearch_error_t *uerror)
 {
 	size_t size = usearch_size(index->usearch, uerror);
-	if (index->reserved == size) {
-		size_t new_reserve = next_reserve(index->reserved);
+	fprintf(stderr, "(_add) reserved (%zu), size (%zu)\n", index->reserved, size);
+	if (index->reserved <= size) {
+		size_t new_reserve = next_reserve(size);
+		fprintf(stderr, "(_add) reserved (%zu), size (%zu), new_reserve (%zu)\n", index->reserved, size, new_reserve);
 		try {
 			usearch_reserve(index->usearch, new_reserve, uerror);
 		} catch(std::exception &e) {
@@ -134,6 +142,7 @@ void tt_usearch_remove(tt_usearch_index *index, usearch_key_t key, usearch_error
 	} catch(std::exception &e) {
 		*uerror = e.what();
 	}
+	fprintf(stderr, "reserved (%zu)\n", index->reserved);
 }
 
 void tt_usearch_reserve(tt_usearch_index *index, size_t capacity, usearch_error_t *uerror)

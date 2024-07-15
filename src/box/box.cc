@@ -3903,6 +3903,78 @@ box_select_ffi(uint32_t space_id, uint32_t index_id, const char *key,
 			  port);
 }
 
+int
+box_search(uint32_t space_id, uint32_t index_id, uint64_t limit,
+	   const char *key, const char *key_end,
+	   struct port *port)
+{
+	(void) key_end;
+	rmean_collect(rmean_box, IPROTO_SELECT, 1);
+
+	struct space *space = space_cache_find(space_id);
+	if (space == NULL)
+		return -1;
+	if (access_check_space(space, PRIV_R) != 0)
+		return -1;
+	struct index *index = index_find(space, index_id);
+	if (index == NULL)
+		return -1;
+
+	const char *key_array = key;
+	uint32_t part_count = key ? mp_decode_array(&key) : 0;
+	if (key_validate(index->def, ITER_NEIGHBOR, key, part_count))
+		return -1;
+
+	struct txn *txn;
+	struct txn_ro_savepoint svp;
+	if (txn_begin_ro_stmt(space, &txn, &svp) != 0)
+		return -1;
+
+	struct iterator *it = index_create_iterator_limit(index, ITER_NEIGHBOR, key_array,
+							  part_count, limit);
+	if (it == NULL) {
+		txn_end_ro_stmt(txn, &svp);
+		return -1;
+	}
+
+	int rc = 0;
+	uint32_t found = 0;
+	struct tuple *tuple;
+	port_c_create(port);
+	while (found < limit) {
+		rc = box_check_slice();
+		if (rc != 0)
+			break;
+		rc = iterator_next(it, &tuple);
+		if (rc != 0 || tuple == NULL)
+			break;
+		port_c_add_tuple(port, tuple);
+		port_c_add_number(port, iterator_distance(it));
+		found++;
+		/*
+		 * Refresh the pointer to the space, because the space struct
+		 * could be freed if the iterator yielded.
+		 */
+		space = index_weak_ref_get_space(&it->index_ref);
+	}
+
+	txn_end_ro_stmt(txn, &svp);
+	iterator_delete(it);
+	return 0;
+}
+
+/**
+ * A special wrapper for FFI - workaround for M1.
+ * Use 64-bit integers beyond the 8th argument.
+ * See https://github.com/LuaJIT/LuaJIT/issues/205 for details.
+ */
+extern "C" int
+box_search_ffi(uint32_t space_id, uint32_t index_id, const char *key,
+	       const char *key_end, struct port *port, uint64_t limit)
+{
+	return box_search(space_id, index_id, limit, key, key_end, port);
+}
+
 API_EXPORT int
 box_insert(uint32_t space_id, const char *tuple, const char *tuple_end,
 	   box_tuple_t **result)

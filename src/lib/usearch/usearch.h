@@ -38,7 +38,6 @@ struct tt_usearch_index {
 	usearch_index_t usearch;
 	usearch_scalar_kind_t quantization;
 	size_t reserved;
-	size_t size;
 };
 
 #if defined(__cplusplus)

@@ -324,6 +324,11 @@ struct iterator {
 	 * Returns 0 on success, -1 on error.
 	 */
 	int (*next)(struct iterator *it, struct tuple **ret);
+
+	/**
+	 * Returns distance to the tuple on the current position
+	 */
+	double (*fetch_distance)(struct iterator *it);
 	/**
 	 * Get position of iterator - extracted cmp_def of last fetched
 	 * tuple with MP_ARRAY header. If iterator is exhausted,
@@ -425,6 +430,12 @@ iterator_position_validate(const char *pos, uint32_t pos_part_count,
  */
 int
 iterator_position(struct iterator *it, const char **pos, uint32_t *size);
+
+/**
+ * Returns distance between search key and current tuple
+ */
+double
+iterator_distance(struct iterator *it);
 
 /**
  * Destroy an iterator instance and free associated memory.
@@ -574,7 +585,7 @@ struct index_vtab {
 					    enum iterator_type type,
 					    const char *key,
 					    uint32_t part_count,
-					    const char *pos);
+					    const char *pos, uint32_t limit);
 	/** Create an index read view. */
 	struct index_read_view *(*create_read_view)(struct index *index);
 	/** Introspection (index:stat()) */
@@ -924,14 +935,24 @@ index_create_iterator_after(struct index *index, enum iterator_type type,
 			    const char *pos)
 {
 	return index->vtab->create_iterator(index, type, key, part_count,
-					    pos);
+					    pos, 0);
 }
 
 static inline struct iterator *
 index_create_iterator(struct index *index, enum iterator_type type,
 		      const char *key, uint32_t part_count)
 {
-	return index->vtab->create_iterator(index, type, key, part_count, NULL);
+	return index->vtab->create_iterator(index, type, key, part_count,
+					    NULL, 0);
+}
+
+static inline struct iterator *
+index_create_iterator_limit(struct index *index, enum iterator_type type,
+			    const char *key, uint32_t part_count,
+			    uint32_t limit)
+{
+	return index->vtab->create_iterator(index, type, key, part_count,
+					    NULL, limit);
 }
 
 static inline struct index_read_view *
@@ -1078,7 +1099,7 @@ int generic_index_reserve(struct index *, uint32_t);
 struct iterator *
 generic_index_create_iterator(struct index *base, enum iterator_type type,
 			      const char *key, uint32_t part_count,
-			      const char *pos);
+			      const char *pos, uint32_t limit);
 int generic_index_build_next(struct index *, struct tuple *);
 void generic_index_end_build(struct index *);
 int

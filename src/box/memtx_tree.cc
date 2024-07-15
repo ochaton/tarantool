@@ -1644,8 +1644,9 @@ template <bool USE_HINT>
 static struct iterator *
 memtx_tree_index_create_iterator(struct index *base, enum iterator_type type,
 				 const char *key, uint32_t part_count,
-				 const char *pos)
+				 const char *pos, uint32_t limit)
 {
+	(void) limit;
 	struct memtx_tree_index<USE_HINT> *index =
 		(struct memtx_tree_index<USE_HINT> *)base;
 	struct memtx_engine *memtx = (struct memtx_engine *)base->engine;

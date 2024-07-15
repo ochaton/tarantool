@@ -110,8 +110,9 @@ sysview_index_destroy(struct index *index)
 static struct iterator *
 sysview_index_create_iterator(struct index *base, enum iterator_type type,
 			      const char *key, uint32_t part_count,
-			      const char *pos)
+			      const char *pos, uint32_t limit)
 {
+	(void) limit;
 	struct sysview_index *index = (struct sysview_index *)base;
 	struct sysview_engine *sysview = (struct sysview_engine *)base->engine;
 

@@ -192,8 +192,9 @@ static struct iterator *
 session_settings_index_create_iterator(struct index *base,
 				       enum iterator_type type,
 				       const char *key, uint32_t part_count,
-				       const char *pos)
+				       const char *pos, uint32_t limit)
 {
+	(void) limit;
 	struct session_settings_index *index =
 		(struct session_settings_index *)base;
 	if (pos != NULL) {

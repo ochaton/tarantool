@@ -119,7 +119,7 @@ key_validate(const struct index_def *index_def, enum iterator_type type,
 		/* Fall through. */
 	}
 
-	if (index_def->type == RTREE) {
+	if (index_def->type == RTREE || index_def->type == USEARCH) {
 		unsigned d = index_def->opts.dimension;
 		if (part_count != 1 && part_count != d && part_count != d * 2) {
 			diag_set(ClientError, ER_KEY_PART_COUNT, d  * 2,
@@ -670,6 +670,13 @@ iterator_position(struct iterator *it, const char **pos, uint32_t *size)
 	return it->position(it, pos, size);
 }
 
+double
+iterator_distance(struct iterator *it)
+{
+	assert(it->fetch_distance != NULL);
+	return it->fetch_distance(it);
+}
+
 #define ITERATOR_POS_B64_OPTS (BASE64_NOPAD | BASE64_NOWRAP)
 
 size_t
@@ -976,12 +983,13 @@ generic_index_replace(struct index *index, struct tuple *old_tuple,
 struct iterator *
 generic_index_create_iterator(struct index *base, enum iterator_type type,
 			      const char *key, uint32_t part_count,
-			      const char *pos)
+			      const char *pos, uint32_t limit)
 {
 	(void)type;
 	(void)key;
 	(void)part_count;
 	(void)pos;
+	(void)limit;
 	diag_set(UnsupportedIndexFeature, base->def, "read view");
 	return NULL;
 }
