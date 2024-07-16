@@ -44,7 +44,7 @@ struct tt_usearch_index {
 extern "C" {
 #endif /* defined(__cplusplus) */
 
-typedef double* tt_usearch_vector_t;
+typedef float* tt_usearch_vector_t;
 
 extern tt_usearch_index *tt_usearch_init(usearch_init_options_t* options, usearch_error_t *uerror);
 extern void tt_usearch_free(tt_usearch_index *index, usearch_error_t* uerror);

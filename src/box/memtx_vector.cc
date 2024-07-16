@@ -108,7 +108,7 @@ mp_decode_vector(tt_usearch_vector_t vec, unsigned dimension,
 		for (unsigned i = 0; i < dimension; i++) {
 			if (mp_decode_num(&mp, i, &c) < 0)
 				return -1;
-			vec[i] = c;
+			vec[i] = (float) c;
 		}
 	} else {
 		diag_set(ClientError, ER_PROC_C, tt_sprintf("Index requires vector dimension %d got %d", dimension, count));
@@ -323,8 +323,11 @@ memtx_vector_index_stat(struct index *index, struct info_handler *h)
 
 	info_append_int(h, "dimension", vindex->dimension);
 	info_append_int(h, "reserved", vindex->tree->reserved);
-	info_append_int(h, "memory_usage", tt_usearch_memory_usage(vindex->tree, NULL));
-	info_append_int(h, "size", tt_usearch_size(vindex->tree, NULL));
+
+
+	usearch_error_t uerror = NULL;
+	info_append_int(h, "memory_usage", tt_usearch_memory_usage(vindex->tree, &uerror));
+	info_append_int(h, "size", tt_usearch_size(vindex->tree, &uerror));
 
 	info_end(h);
 }

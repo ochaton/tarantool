@@ -106,7 +106,7 @@ size_t tt_usearch_search(tt_usearch_index *index, tt_usearch_vector_t query, siz
 {
 	size_t matches;
 	try {
-		matches = usearch_search(index->usearch, query, index->quantization, limit, keys, dists, uerror);
+		matches = us_usearch_search(index->usearch, query, index->quantization, limit, keys, dists, uerror);
 	} catch(std::exception &e) {
 		*uerror = e.what();
 	}
@@ -116,7 +116,6 @@ size_t tt_usearch_search(tt_usearch_index *index, tt_usearch_vector_t query, siz
 void tt_usearch_add(tt_usearch_index *index, usearch_key_t key, tt_usearch_vector_t vector, usearch_error_t *uerror)
 {
 	size_t size = usearch_size(index->usearch, uerror);
-	fprintf(stderr, "(_add) reserved (%zu), size (%zu)\n", index->reserved, size);
 	if (index->reserved <= size) {
 		size_t new_reserve = next_reserve(size);
 		fprintf(stderr, "(_add) reserved (%zu), size (%zu), new_reserve (%zu)\n", index->reserved, size, new_reserve);
@@ -142,7 +141,6 @@ void tt_usearch_remove(tt_usearch_index *index, usearch_key_t key, usearch_error
 	} catch(std::exception &e) {
 		*uerror = e.what();
 	}
-	fprintf(stderr, "reserved (%zu)\n", index->reserved);
 }
 
 void tt_usearch_reserve(tt_usearch_index *index, size_t capacity, usearch_error_t *uerror)
