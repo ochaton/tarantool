@@ -81,6 +81,14 @@ enum vector_metric_kind {
     vector_metric_kind_MAX
 };
 
+enum vector_quantization {
+	VECTOR_QUANTIZATION_UNKNOWN = 0,
+	VECTOR_QUANTIZATION_F32 = 1,
+	VECTOR_QUANTIZATION_F64 = 2,
+	VECTOR_QUANTIZATION_I8 = 4,
+	vector_quantization_MAX,
+};
+
 extern const char *vector_metric_kind_t_strs[];
 
 /** Index options */
@@ -143,6 +151,11 @@ struct index_opts {
 	 * Usearch Metric Kind
 	 */
 	enum vector_metric_kind vector_metric_kind;
+
+	/**
+	 * Usearch Quantization
+	 */
+	enum vector_quantization vector_quantization;
 };
 
 extern const struct index_opts index_opts_default;

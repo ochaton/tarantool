@@ -44,6 +44,8 @@ const char *vector_metric_kind_strs[] = { "UNKNOWN", "COS", "IP", "L2SQ",
 	"HAVERSINE", "DIVERGENCE", "PEARSON", "JACCARD", "HAMMING",
 	"TANIMOTO", "SORENSEN" };
 
+const char *vector_quantization_strs[] = { "UNKNOWN", "f32", "f64", "f16", "i8" };
+
 const struct index_opts index_opts_default = {
 	/* .unique              = */ true,
 	/* .dimension           = */ 2,
@@ -60,6 +62,7 @@ const struct index_opts index_opts_default = {
 	/* .expansion_add       = */ 0,
 	/* .expansion_search    = */ 0,
 	/* .vector_metric_kind  = */ VECTOR_METRIC_KIND_COS,
+	/* .vector_quantization = */ VECTOR_QUANTIZATION_F32,
 };
 
 /**
@@ -102,6 +105,8 @@ const struct opt_def index_opts_reg[] = {
 	OPT_DEF("expansion_search", OPT_UINT32, struct index_opts, expansion_search),
 	OPT_DEF_ENUM("metric_kind", vector_metric_kind, struct index_opts,
 		vector_metric_kind, NULL),
+	OPT_DEF_ENUM("quantization", vector_quantization, struct index_opts,
+		vector_quantization, NULL),
 	OPT_END,
 };
 

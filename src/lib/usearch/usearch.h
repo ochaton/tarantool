@@ -35,16 +35,20 @@
 #include "usearch/c/usearch.h"
 
 struct tt_usearch_index {
-	usearch_index_t usearch;
-	usearch_scalar_kind_t quantization;
 	size_t reserved;
+	usearch_scalar_kind_t quantization;
+	usearch_index_t usearch;
 };
 
 #if defined(__cplusplus)
 extern "C" {
 #endif /* defined(__cplusplus) */
 
-typedef float* tt_usearch_vector_t;
+typedef void *tt_usearch_vector_t;
+
+typedef float* tt_usearch_vector_f32_t;
+typedef double* tt_usearch_vector_f64_t;
+typedef int8_t* tt_usearch_vector_i8_t;
 
 extern tt_usearch_index *tt_usearch_init(usearch_init_options_t* options, usearch_error_t *uerror);
 extern void tt_usearch_free(tt_usearch_index *index, usearch_error_t* uerror);

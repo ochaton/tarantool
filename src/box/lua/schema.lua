@@ -1589,6 +1589,7 @@ local alter_index_template = {
     connectivity = 'number',
     expansion_add = 'number',
     expansion_search = 'number',
+    quantization = 'string',
 }
 for k, v in pairs(index_options) do
     alter_index_template[k] = v
@@ -1657,6 +1658,7 @@ box.schema.index.create = atomic_wrapper(function(space_id, name, options)
             options_defaults.connectivity = 3
             options_defaults.expansion_add = 0
             options_defaults.expansion_search = 0
+            options_defaults.quantization = 'f32'
         end
     end
     options = update_param_table(options, options_defaults)
@@ -1707,6 +1709,7 @@ box.schema.index.create = atomic_wrapper(function(space_id, name, options)
             expansion_add = options.expansion_add,
             expansion_search = options.expansion_search,
             metric_kind = options.metric_kind,
+            quantization = options.quantization,
     }
     local field_type_aliases = {
         num = 'unsigned'; -- Deprecated since 1.7.2

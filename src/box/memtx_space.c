@@ -881,6 +881,9 @@ memtx_space_check_index_def(struct space *space, struct index_def *index_def)
 				 "USEARCH index can not be unique");
 			return -1;
 		}
+		if (index_def->opts.vector_quantization) {
+
+		}
 		if (key_def->parts[0].type != FIELD_TYPE_ARRAY) {
 			diag_set(ClientError, ER_MODIFY_INDEX,
 				 index_def->name, space_name(space),
@@ -897,26 +900,6 @@ memtx_space_check_index_def(struct space *space, struct index_def *index_def)
 			diag_set(ClientError, ER_MODIFY_INDEX,
 				 index_def->name, space_name(space),
 				 "USEARCH index can not use a function");
-			return -1;
-		}
-
-		struct index *pk = space->index[0];
-		if (!pk) {
-			diag_set(ClientError, ER_MODIFY_INDEX,
-				 index_def->name, space_name(space),
-				 "USEARCH index requires existing primary index");
-			return -1;
-		}
-		if (pk->def->key_def->part_count != 1) {
-			diag_set(ClientError, ER_MODIFY_INDEX,
-				 index_def->name, space_name(space),
-				 "USEARCH requires single-part primary index over unsigned field");
-			return -1;
-		}
-		if (pk->def->key_def->parts[0].type != FIELD_TYPE_UNSIGNED) {
-			diag_set(ClientError, ER_MODIFY_INDEX,
-				 index_def->name, space_name(space),
-				 "USEARCH requires primary index over unsigned field");
 			return -1;
 		}
 		return 0;

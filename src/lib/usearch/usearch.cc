@@ -32,6 +32,7 @@
 #include "usearch.h"
 #include <exception>
 #include <iostream>
+#include "say.h"
 
 enum {
 	TT_USEARCH_MAX_RESERVE = 8192,
@@ -118,8 +119,9 @@ void tt_usearch_add(tt_usearch_index *index, usearch_key_t key, tt_usearch_vecto
 	size_t size = usearch_size(index->usearch, uerror);
 	if (index->reserved <= size) {
 		size_t new_reserve = next_reserve(size);
-		fprintf(stderr, "(_add) reserved (%zu), size (%zu), new_reserve (%zu)\n", index->reserved, size, new_reserve);
+		// say_debug("tt_usearch_add(reserved=%lu, size=%lu, next_reserve=%lu)", index->reserved, size, new_reserve);
 		try {
+
 			usearch_reserve(index->usearch, new_reserve, uerror);
 		} catch(std::exception &e) {
 			*uerror = e.what();
@@ -128,7 +130,7 @@ void tt_usearch_add(tt_usearch_index *index, usearch_key_t key, tt_usearch_vecto
 		index->reserved = new_reserve;
 	}
 	try {
-		usearch_add(index->usearch, key, &vector[0], index->quantization, uerror);
+		usearch_add(index->usearch, key, vector, index->quantization, uerror);
 	} catch(std::exception &e) {
 		*uerror = e.what();
 	}
@@ -145,6 +147,10 @@ void tt_usearch_remove(tt_usearch_index *index, usearch_key_t key, usearch_error
 
 void tt_usearch_reserve(tt_usearch_index *index, size_t capacity, usearch_error_t *uerror)
 {
+	if (capacity <= index->reserved) {
+		return;
+	}
+	// say_debug("tt_usearch_reserve(reserved=%lu, capacity=%lu)", index->reserved, capacity);
 	try {
 		usearch_reserve(index->usearch, capacity, uerror);
 		index->reserved = capacity;

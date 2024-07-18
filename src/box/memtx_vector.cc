@@ -38,6 +38,7 @@
 #include "errinj.h"
 #include "fiber.h"
 #include "trivia/util.h"
+#include "say.h"
 
 #include "tuple.h"
 #include "txn.h"
@@ -95,20 +96,57 @@ mp_decode_num(const char **data, uint32_t fieldno, double *ret)
 	return 0;
 }
 
+static inline tt_usearch_vector_t
+alloc_vector(unsigned dimension, enum vector_quantization scalar_kind)
+{
+	switch (scalar_kind)
+	{
+	case VECTOR_QUANTIZATION_F32: {
+		tt_usearch_vector_f32_t vec32 = (tt_usearch_vector_f32_t) xcalloc(dimension, sizeof(*vec32));
+		return vec32;
+	}
+	case VECTOR_QUANTIZATION_F64:{
+		tt_usearch_vector_f64_t vec64 = (tt_usearch_vector_f64_t) xcalloc(dimension, sizeof(*vec64));
+		return vec64;
+	}
+	case VECTOR_QUANTIZATION_I8:{
+		tt_usearch_vector_i8_t veci8 = (tt_usearch_vector_i8_t) xcalloc(dimension, sizeof(*veci8));
+		return veci8;
+	}
+	default:
+		diag_set(ClientError, ER_PROC_C, "Given Quantization not implemented yet");
+		return NULL;
+	}
+}
+
 /**
  * Extract vector where each component is a double.
  * msgpacked string *mp must contain dimension numbers.
  */
 static inline int
-mp_decode_vector(tt_usearch_vector_t vec, unsigned dimension,
-	       const char *mp, unsigned count)
+mp_decode_vector(tt_usearch_vector_t vec, unsigned dimension, const char *mp, unsigned count, enum vector_quantization scalar_kind)
 {
 	double c = 0;
 	if (count == dimension) { /* point */
 		for (unsigned i = 0; i < dimension; i++) {
 			if (mp_decode_num(&mp, i, &c) < 0)
 				return -1;
-			vec[i] = (float) c;
+
+			switch (scalar_kind)
+			{
+			case VECTOR_QUANTIZATION_F32:
+				*((tt_usearch_vector_f32_t)vec + i) = (float) c;
+				break;
+			case VECTOR_QUANTIZATION_F64:
+				*((tt_usearch_vector_f64_t)vec + i) = (double) c;
+				break;
+			case VECTOR_QUANTIZATION_I8:
+				*((tt_usearch_vector_i8_t)vec + i) = (int8_t) c;
+				break;
+			default:
+				diag_set(ClientError, ER_PROC_C, "Given Quantization not implemented yet");
+				return -1;
+			}
 		}
 	} else {
 		diag_set(ClientError, ER_PROC_C, tt_sprintf("Index requires vector dimension %d got %d", dimension, count));
@@ -127,14 +165,14 @@ extract_vector_from_tuple(tt_usearch_vector_t vec, struct tuple *tuple,
 				index_def->key_def->parts, MULTIKEY_NONE);
 	unsigned dimension = index_def->opts.dimension;
 	uint32_t count = mp_decode_array(&elems);
-	return mp_decode_vector(vec, dimension, elems, count);
+	return mp_decode_vector(vec, dimension, elems, count, index_def->opts.vector_quantization);
 }
 
 static inline int
-extract_vector_from_key(tt_usearch_vector_t vec, unsigned dimension, const char *key)
+extract_vector_from_key(tt_usearch_vector_t vec, unsigned dimension, const char *key, enum vector_quantization scalar_kind)
 {
 	uint32_t count = mp_decode_array(&key);
-	return mp_decode_vector(vec, dimension, key, count);
+	return mp_decode_vector(vec, dimension, key, count, scalar_kind);
 }
 
 
@@ -168,17 +206,11 @@ memtx_vector_index_def_change_requires_rebuild(struct index *index,
 	    index->def->opts.connectivity != new_def->opts.connectivity ||
 	    index->def->opts.expansion_add != new_def->opts.expansion_add ||
 	    index->def->opts.expansion_search != new_def->opts.expansion_search ||
-	    index->def->opts.vector_metric_kind != new_def->opts.vector_metric_kind)
+	    index->def->opts.vector_metric_kind != new_def->opts.vector_metric_kind ||
+	    index->def->opts.vector_quantization != new_def->opts.vector_quantization)
 		return true;
 	return false;
 
-}
-
-static bool
-memtx_vector_index_depends_on_pk(struct index *index)
-{
-	(void) index;
-	return true;
 }
 
 static ssize_t
@@ -218,8 +250,8 @@ memtx_vector_index_get_internal(struct index *base, const char *key,
 	*result = NULL;
 
 	int64_t dim = index->base.def->opts.dimension;
-	tt_usearch_vector_t query = (tt_usearch_vector_t) xcalloc(dim, sizeof(tt_usearch_vector_t));
-	if (extract_vector_from_key(query, dim, key) != 0)
+	tt_usearch_vector_t query = alloc_vector(dim, index->base.def->opts.vector_quantization);
+	if (extract_vector_from_key(query, dim, key, index->base.def->opts.vector_quantization) != 0)
 		return -1;
 
 	usearch_error_t uerror = NULL;
@@ -238,12 +270,8 @@ memtx_vector_index_get_internal(struct index *base, const char *key,
 	if (!matches || dists[0] != 0)
 		return 0;
 
-	struct space *space = space_by_id(base->def->space_id);
-
-	char pk[10];
-	mp_encode_int(pk, keys[0]);
-
-	return index_get_internal(space->index[0], pk, 1, result);
+	*result = (struct tuple *) keys[0];
+	return 0;
 }
 
 static int
@@ -260,14 +288,16 @@ memtx_vector_index_replace(struct index *base, struct tuple *old_tuple,
 	usearch_error_t uerror = NULL;
 
 	int64_t dim = index->base.def->opts.dimension;
-	tt_usearch_vector_t vec = (tt_usearch_vector_t) xcalloc(dim, sizeof(*vec));
+	tt_usearch_vector_t vec = alloc_vector(dim, index->base.def->opts.vector_quantization);
 	usearch_key_t key;
+
+	// say_debug("memtx_vector_index_replace(old=%s, new=%s)", tuple_str(old_tuple), tuple_str(new_tuple));
 
 	if (old_tuple) {
 		if (extract_vector_from_tuple(vec, old_tuple, base->def) != 0)
 			goto error;
-		if (extract_key_from_tuple(&key, old_tuple, base->def) != 0)
-			goto error;
+
+		key = (usearch_key_t) (ptrdiff_t) old_tuple;
 
 		tt_usearch_remove(index->tree, key, &uerror);
 		if (uerror != NULL) {
@@ -278,8 +308,8 @@ memtx_vector_index_replace(struct index *base, struct tuple *old_tuple,
 	if (new_tuple) {
 		if (extract_vector_from_tuple(vec, new_tuple, base->def) != 0)
 			goto error;
-		if (extract_key_from_tuple(&key, new_tuple, base->def) != 0)
-			goto error;
+
+		key = (usearch_key_t) (ptrdiff_t) new_tuple;
 
 		tt_usearch_add(index->tree, key, vec, &uerror);
 		if (uerror != NULL) {
@@ -294,25 +324,6 @@ memtx_vector_index_replace(struct index *base, struct tuple *old_tuple,
 error:
 	free(vec);
 	return -1;
-}
-
-static int
-memtx_vector_index_reserve(struct index *base, uint32_t size_hint)
-{
-	(void)size_hint;
-	(void)base;
-	struct memtx_vector_index *index = (struct memtx_vector_index *)base;
-
-	usearch_error_t uerror = NULL;
-	tt_usearch_reserve(index->tree, size_hint, &uerror);
-
-	if (uerror != NULL) {
-		/* same error as in mempool_alloc */
-		diag_set(OutOfMemory, MEMTX_EXTENT_SIZE,
-			 "usearch", tt_sprintf("%s", uerror));
-		return -1;
-	}
-	return 0;
 }
 
 static void
@@ -361,11 +372,7 @@ vector_iterator_next(struct vector_iterator *itr, struct tuple **result)
 		assert(itr->position >= 0);
 		usearch_key_t key = itr->keys[itr->position];
 
-		char pk[10];
-		mp_encode_uint(pk, key);
-
-		struct space *space = space_by_id(itr->space_id);
-		index_get_internal(space->index[0], pk, 1, result);
+		*result = (struct tuple *) key;
 	}
 	return *result;
 }
@@ -376,7 +383,6 @@ index_vector_iterator_fetch_distance(struct iterator *i)
 	struct index_vector_iterator *itr = (struct index_vector_iterator *)i;
 	if (itr->impl.position < (ssize_t) itr->impl.result_count) {
 		float dist = itr->impl.dists[itr->impl.position];
-		fprintf(stderr, "pos: %ld dist: %f\n", itr->impl.position, dist);
 		return (double) dist;
 	}
 	return 0.0;
@@ -419,9 +425,6 @@ static int vector_search(tt_usearch_index *index, struct vector_iterator *itr)
 		diag_set(ClientError, ER_PROC_C, tt_sprintf("usearch: %s", uerror));
 		return -1;
 	}
-	for (size_t i = 0; i < n_matches; i++) {
-		fprintf(stderr, "dist[%zu] = %f\n", i, itr->dists[i]);
-	}
 	itr->result_count = n_matches;
 	return 0;
 }
@@ -454,9 +457,9 @@ memtx_vector_index_create_iterator(struct index *base, enum iterator_type type,
 	}
 
 	int64_t dim = index->base.def->opts.dimension;
-	tt_usearch_vector_t query = (tt_usearch_vector_t) xcalloc(dim, sizeof(tt_usearch_vector_t));
+	tt_usearch_vector_t query = alloc_vector(dim, index->base.def->opts.vector_quantization);
 
-	if (extract_vector_from_key(query, dim, key) != 0) {
+	if (extract_vector_from_key(query, dim, key, index->base.def->opts.vector_quantization) != 0) {
 		free(query);
 		return NULL;
 	}
@@ -486,6 +489,44 @@ memtx_vector_index_create_iterator(struct index *base, enum iterator_type type,
 /**************************** End of Vector Iterator ****************************/
 
 
+/**************************** Vector Build ****************************/
+
+void
+memtx_vector_index_begin_build(struct index *)
+{
+}
+
+static int
+memtx_vector_index_reserve(struct index *base, uint32_t size_hint)
+{
+	struct memtx_vector_index *index = (struct memtx_vector_index *)base;
+
+	usearch_error_t uerror = NULL;
+	tt_usearch_reserve(index->tree, size_hint, &uerror);
+
+	if (uerror != NULL) {
+		/* same error as in mempool_alloc */
+		diag_set(OutOfMemory, MEMTX_EXTENT_SIZE, "usearch", tt_sprintf("%s", uerror));
+		return -1;
+	}
+	return 0;
+}
+
+static int
+memtx_vector_index_build_next(struct index *index, struct tuple *tuple)
+{
+	struct tuple *unused;
+	return index_replace(index, NULL, tuple, DUP_INSERT, &unused, &unused);
+}
+
+void
+memtx_vector_index_end_build(struct index *)
+{
+}
+
+/************************ End of Vector Build *************************/
+
+
 static const struct index_vtab memtx_vector_index_vtab = {
 	/* .destroy = */ memtx_vector_index_destroy,
 	/* .commit_create = */ generic_index_commit_create,
@@ -493,7 +534,7 @@ static const struct index_vtab memtx_vector_index_vtab = {
 	/* .commit_modify = */ generic_index_commit_modify,
 	/* .commit_drop = */ generic_index_commit_drop,
 	/* .update_def = */ generic_index_update_def,
-	/* .depends_on_pk = */ memtx_vector_index_depends_on_pk,
+	/* .depends_on_pk = */ generic_index_depends_on_pk,
 	/* .def_change_requires_rebuild = */
 		memtx_vector_index_def_change_requires_rebuild,
 	/* .size = */ memtx_vector_index_size,
@@ -510,10 +551,10 @@ static const struct index_vtab memtx_vector_index_vtab = {
 	/* .stat = */ memtx_vector_index_stat,
 	/* .compact = */ generic_index_compact,
 	/* .reset_stat = */ generic_index_reset_stat,
-	/* .begin_build = */ generic_index_begin_build,
+	/* .begin_build = */ memtx_vector_index_begin_build,
 	/* .reserve = */ memtx_vector_index_reserve,
-	/* .build_next = */ generic_index_build_next,
-	/* .end_build = */ generic_index_end_build,
+	/* .build_next = */ memtx_vector_index_build_next,
+	/* .end_build = */ memtx_vector_index_end_build,
 };
 
 struct index *
@@ -541,10 +582,34 @@ memtx_vector_index_new(struct memtx_engine *memtx, struct index_def *def)
 
 	index->dimension = def->opts.dimension;
 
+	usearch_scalar_kind_t scalar_kind;
+
+	switch (def->opts.vector_quantization)
+	{
+	case VECTOR_QUANTIZATION_F32:
+		scalar_kind = usearch_scalar_f32_k;
+		break;
+	case VECTOR_QUANTIZATION_F64:
+		scalar_kind = usearch_scalar_f64_k;
+		break;
+	// case VECTOR_QUANTIZATION_F16:
+	// 	scalar_kind = usearch_scalar_f16_k;
+	// 	break;
+	case VECTOR_QUANTIZATION_I8:
+		scalar_kind = usearch_scalar_i8_k;
+		break;
+	// case VECTOR_QUANTIZATION_B1:
+	// 	scalar_kind = usearch_scalar_b1_k;
+	// 	break;
+	default:
+		diag_set(UnsupportedIndexFeature, def, "unknown quantization given");
+		return NULL;
+	}
+
 	usearch_init_options_t uopts = {
 		.metric_kind = (usearch_metric_kind_t) def->opts.vector_metric_kind,
 		.metric = NULL,
-		.quantization = usearch_scalar_f32_k,
+		.quantization = scalar_kind,
 		.dimensions = (size_t) def->opts.dimension,
 		.connectivity = def->opts.connectivity,
 		.expansion_add = def->opts.expansion_add,
@@ -554,6 +619,8 @@ memtx_vector_index_new(struct memtx_engine *memtx, struct index_def *def)
 
 	usearch_error_t uerror = NULL;
 	index->tree = tt_usearch_init(&uopts, &uerror);
+	say_debug("memtx_vector_init(EA=%lu; ES=%lu; D=%lu)",
+		uopts.expansion_add, uopts.expansion_search, uopts.dimensions);
 	if (uerror != NULL) {
 		diag_set(UnsupportedIndexFeature, def,
 			 tt_sprintf("%s", uerror));
