@@ -41,7 +41,7 @@ struct memtx_engine;
 
 enum {
 	/** Maximal possible Vector dimension */
-	VECTOR_MAX_DIMENSION = 1024
+	VECTOR_MAX_DIMENSION = 4096
 };
 
 struct index *

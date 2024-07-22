@@ -99,6 +99,40 @@ add_custom_target(test-func-force
         --exclude unit/
         --force)
 
+add_custom_target(test-box-luatest-force
+    COMMAND ${PROJECT_SOURCE_DIR}/test/test-run.py
+        --builddir=${PROJECT_BINARY_DIR}
+        --exclude app/
+        --exclude app-luatest/
+        --exclude app-tap/
+        --exclude box/
+        --exclude box-py/
+        --exclude box-tap/
+        --exclude config-luatest/
+        --exclude engine/
+        --exclude engine_long/
+        --exclude engine-luatest/
+        --exclude engine-tap/
+        --exclude fuzz/
+        --exclude luatest_helpers/
+        --exclude metrics-luatest/
+        --exclude replication/
+        --exclude replication-luatest/
+        --exclude replication-py/
+        --exclude share/
+        --exclude sql/
+        --exclude sql-luatest/
+        --exclude sql-tap/
+        --exclude static/
+        --exclude swim/
+        --exclude unit/
+        --exclude vinyl/
+        --exclude vinyl-luatest/
+        --exclude wal_off/
+        --exclude xlog/
+        --exclude xlog-py/
+        --force)
+
 add_custom_target(test
     DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/small
             LuaJIT-test

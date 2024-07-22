@@ -30,6 +30,7 @@
  */
 
 #include "memtx_vector.h"
+#include "lib/core/clock.h"
 
 #include <small/small.h>
 #include <small/mempool.h>
@@ -51,9 +52,17 @@
 
 #include "lib/usearch/usearch.h"
 
+struct memtx_vector_data {
+	struct tuple *tuple;
+};
+
 struct memtx_vector_index {
 	struct index base;
 	unsigned dimension;
+
+	struct memtx_vector_data *build_array;
+	size_t build_array_size, build_array_alloc_size;
+
 	tt_usearch_index *tree;
 };
 
@@ -81,6 +90,35 @@ struct index_vector_iterator {
 	struct vector_iterator impl;
 	/** Memory pool the iterator was allocated from. */
 	struct mempool *pool;
+};
+
+struct vector_insert_data {
+	/** The data being inserted. */
+	struct memtx_vector_data *data;
+	/** Number of elements in data. */
+	size_t elem_count;
+	/** Size of data element. */
+	size_t elem_size;
+	/** Pointer to index */
+	memtx_vector_index *index;
+	/**
+	 * Number of threads to run sort on. It is equal to number of
+	 * buckets we divide the data to.
+	 */
+	int thread_count;
+};
+
+/** Data for a single insert worker thread. */
+struct vector_insert_worker {
+	/** A reference to data shared between threads. */
+	struct vector_insert_data *data;
+	/** The worker cord. */
+	struct cord cord;
+	/** Begin index of data part processed by this thread. */
+	size_t begin;
+	/** End index of data part processed by this thread. */
+	size_t end;
+	size_t worker_id;
 };
 
 static inline int
@@ -509,19 +547,203 @@ memtx_vector_index_reserve(struct index *base, uint32_t size_hint)
 		diag_set(OutOfMemory, MEMTX_EXTENT_SIZE, "usearch", tt_sprintf("%s", uerror));
 		return -1;
 	}
+
+	say_verbose("vector_index reserve %u", size_hint);
+
+	if (size_hint < index->build_array_alloc_size)
+		return 0;
+
+	struct memtx_vector_data *tmp = (struct memtx_vector_data *)
+		realloc(index->build_array, size_hint * sizeof(*tmp));
+
+	if (tmp == NULL) {
+		diag_set(OutOfMemory, size_hint * sizeof(*tmp),
+			 "memtx_vector_index", "reserve");
+		return -1;
+	}
+
+	index->build_array = tmp;
+	index->build_array_alloc_size = size_hint;
+
 	return 0;
 }
 
 static int
-memtx_vector_index_build_next(struct index *index, struct tuple *tuple)
+memtx_vector_index_build_next(struct index *base, struct tuple *tuple)
 {
-	struct tuple *unused;
-	return index_replace(index, NULL, tuple, DUP_INSERT, &unused, &unused);
+	struct memtx_vector_index *index = (struct memtx_vector_index *)base;
+
+	// Append to build array
+	if (index->build_array == NULL) {
+		index->build_array = (struct memtx_vector_data *)malloc(MEMTX_EXTENT_SIZE);
+		if (index->build_array == NULL) {
+			diag_set(OutOfMemory, MEMTX_EXTENT_SIZE,
+				 "memtx_vector_index", "build_next");
+			return -1;
+		}
+		index->build_array_alloc_size = MEMTX_EXTENT_SIZE / sizeof(index->build_array[0]);
+	}
+
+	assert(index->build_array_size <= index->build_array_alloc_size);
+
+	if (index->build_array_size == index->build_array_alloc_size) {
+		index->build_array_alloc_size = index->build_array_alloc_size +
+				DIV_ROUND_UP(index->build_array_alloc_size, 2);
+		struct memtx_vector_data *tmp =
+			(struct memtx_vector_data *)realloc(index->build_array,
+				index->build_array_alloc_size * sizeof(*tmp));
+
+		if (tmp == NULL) {
+			diag_set(OutOfMemory, index->build_array_alloc_size *
+				 sizeof(*tmp), "memtx_tree_index", "build_next");
+			return -1;
+		}
+		index->build_array = tmp;
+	}
+
+	struct memtx_vector_data *elem = &index->build_array[index->build_array_size++];
+	elem->tuple = tuple;
+
+	return 0;
+}
+
+/**
+ * Run function in several threads. Yields while waiting threads to
+ * finish.
+ *
+ * Arguments:
+ *  func         - a function to run in threads
+ *  workers      - array of function arguments. An element of this array will
+ *                 be passed to as an argument to the function `func` for each
+ *                 thread. So the array should have `thread_count` elements
+ *  thread_count - number of threads
+ */
+static void
+insert_mt(fiber_func func, struct vector_insert_worker *workers, int thread_count)
+{
+	for (int i = 0; i < thread_count; i++) {
+		char name[FIBER_NAME_MAX];
+
+		snprintf(name, sizeof(name), "insert.worker.%d", i);
+		if (cord_costart(&workers[i].cord, name, func,
+				 &workers[i]) != 0) {
+			diag_log();
+			panic("cord_start failed");
+		}
+	}
+
+	for (int i = 0; i < thread_count; i++) {
+		if (cord_cojoin(&workers[i].cord) != 0) {
+			diag_log();
+			panic("cord_cojoin failed");
+		}
+	}
+}
+
+static int
+insert_mt_func(va_list ap)
+{
+	struct vector_insert_worker *worker = va_arg(ap, typeof(worker));
+	struct vector_insert_data *insert = worker->data;
+
+	struct memtx_vector_index *index = insert->index;
+	struct index_def *index_def = index->base.def;
+	int64_t dim = index->base.def->opts.dimension;
+
+	usearch_error_t uerror = NULL;
+	tt_usearch_vector_t vec = alloc_vector(dim, index->base.def->opts.vector_quantization);
+
+	// size_t progress = 0;
+	// double start = clock_monotonic();
+
+	for (size_t i = worker->begin; i < worker->end; i++) {
+		// progress += 1;
+
+		struct tuple *tuple = insert->data[i].tuple;
+
+		if (extract_vector_from_tuple(vec, tuple, index_def) != 0)
+			return 1;
+
+		tt_usearch_add(index->tree, (usearch_key_t) tuple, vec, &uerror);
+		if (uerror != NULL) {
+			diag_set(ClientError, ER_PROC_C, tt_sprintf("usearch_add failed: %s", uerror));
+			diag_log();
+			return 1;
+		}
+
+		// if ((progress % 10000) == 0) {
+		// 	double now = clock_monotonic();
+		// 	double elapsed = now - start;
+		// 	say_verbose("vector_insert_mt(inserted=%luK, QpS: %.1fK/s)", progress / 1000, progress / elapsed / 1000);
+		// }
+	}
+
+	free(vec);
+	return 0;
 }
 
 void
-memtx_vector_index_end_build(struct index *)
+memtx_vector_index_end_build(struct index * base)
 {
+	struct memtx_vector_index *index = (struct memtx_vector_index *)base;
+	// struct index_def *index_def = index->base.def;
+	struct memtx_engine *memtx = (struct memtx_engine *)base->engine;
+
+	size_t elem_count = index->build_array_size;
+	size_t elem_size = sizeof(index->build_array[0]);
+
+	int thread_count = memtx->sort_threads;
+	double time_start, time_finish;
+
+	say_verbose("start vector build, data size: %zu, elem size: %zu, threads: %d",
+		elem_count, elem_size, thread_count);
+
+	struct vector_insert_data insert_data;
+
+	insert_data.data = index->build_array;
+	insert_data.index = index;
+	insert_data.elem_count = elem_count;
+	insert_data.elem_size = elem_size;
+	insert_data.thread_count = thread_count;
+
+	if (elem_count < (size_t) thread_count) {
+		thread_count = 1;
+	}
+
+	size_t part_size = elem_count / thread_count;
+	struct vector_insert_worker *workers = (struct vector_insert_worker *)
+		xmalloc(thread_count * sizeof(*workers));
+
+	/* Required for presorted check on part borders. */
+	assert(part_size > 0);
+
+	for (int i = 0; i < thread_count; i++) {
+		struct vector_insert_worker *worker = &workers[i];
+
+		worker->data = &insert_data;
+		worker->begin = i * part_size;
+		worker->worker_id = i;
+		/*
+		 * Each thread takes equal share of data except for last
+		 * thread which takes extra `elem_count % thread_count` elements
+		 * if `elem_count` in not multiple of `thread_count`.
+		 */
+		if (i == thread_count - 1)
+			worker->end = elem_count;
+		else
+			worker->end = worker->begin + part_size;
+	}
+
+	time_start = clock_monotonic();
+	insert_mt(insert_mt_func, workers, thread_count);
+	time_finish = clock_monotonic();
+
+	say_verbose("insertion done, time spent: %.3f sec", time_finish - time_start);
+	free(workers);
+	free(index->build_array);
+	index->build_array = NULL;
+	index->build_array_size = 0;
+	index->build_array_alloc_size = 0;
 }
 
 /************************ End of Vector Build *************************/
@@ -581,6 +803,8 @@ memtx_vector_index_new(struct memtx_engine *memtx, struct index_def *def)
 		     &memtx_vector_index_vtab, def);
 
 	index->dimension = def->opts.dimension;
+	index->build_array_alloc_size = 0;
+	index->build_array_size = 0;
 
 	usearch_scalar_kind_t scalar_kind;
 
